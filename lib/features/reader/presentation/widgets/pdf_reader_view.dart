@@ -1,0 +1,124 @@
+import 'dart:io';
+
+import 'package:chibook/data/models/book.dart';
+import 'package:chibook/features/reader/application/reader_controller.dart';
+import 'package:chibook/features/reader/presentation/widgets/pdf_selection_toolbar.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+
+class PdfReaderView extends ConsumerStatefulWidget {
+  const PdfReaderView({
+    super.key,
+    required this.book,
+  });
+
+  final Book book;
+
+  @override
+  ConsumerState<PdfReaderView> createState() => _PdfReaderViewState();
+}
+
+class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
+  late final PdfViewerController _pdfViewerController;
+  String _selectedText = '';
+  bool _didSeedDefaultExcerpt = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pdfViewerController = PdfViewerController();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ref.read(readerControllerProvider);
+    if (!_didSeedDefaultExcerpt && _selectedText.isEmpty) {
+      _didSeedDefaultExcerpt = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        controller.setReaderExcerpt(
+          bookId: widget.book.id,
+          text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
+        );
+      });
+    }
+
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SfPdfViewer.file(
+              File(widget.book.filePath),
+              controller: _pdfViewerController,
+              interactionMode: PdfInteractionMode.selection,
+              enableTextSelection: true,
+              canShowTextSelectionMenu: true,
+              onTextSelectionChanged: (details) {
+                final nextText = details.selectedText?.trim() ?? '';
+                setState(() {
+                  _selectedText = nextText;
+                });
+                if (_selectedText.isNotEmpty) {
+                  controller.setReaderExcerpt(
+                    bookId: widget.book.id,
+                    text: _selectedText,
+                  );
+                } else {
+                  controller.setReaderExcerpt(
+                    bookId: widget.book.id,
+                    text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
+                  );
+                }
+              },
+              onTap: (_) {
+                if (_selectedText.isEmpty) return;
+                setState(() => _selectedText = '');
+                controller.setReaderExcerpt(
+                  bookId: widget.book.id,
+                  text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
+                );
+              },
+              onPageChanged: (details) {
+                final totalPages = _pdfViewerController.pageCount;
+                final percentage = totalPages <= 0
+                    ? 0.0
+                    : (details.newPageNumber / totalPages)
+                        .clamp(0.0, 1.0)
+                        .toDouble();
+                controller.updateProgress(
+                  bookId: widget.book.id,
+                  location: 'page:${details.newPageNumber}',
+                  percentage: percentage,
+                );
+              },
+            ),
+          ),
+        ),
+        if (_selectedText.isNotEmpty)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: PdfSelectionToolbar(
+              selectedText: _selectedText,
+              onReadAloud: () {
+                controller.speakBookSegment(
+                  bookId: widget.book.id,
+                  segmentId: 'pdf-selection',
+                  text: _selectedText,
+                );
+              },
+              onClear: () {
+                setState(() => _selectedText = '');
+                controller.setReaderExcerpt(
+                  bookId: widget.book.id,
+                  text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+}

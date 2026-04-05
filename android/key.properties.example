@@ -1,0 +1,4 @@
+storePassword=replace-with-your-store-password
+keyPassword=replace-with-your-key-password
+keyAlias=chibook
+storeFile=../keystore/chibook-upload.jks
