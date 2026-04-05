@@ -5,7 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    super.key,
+    this.showAppBar = true,
+  });
+
+  final bool showAppBar;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -59,7 +64,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('朗读设置')),
+      appBar: widget.showAppBar ? AppBar(title: const Text('朗读设置')) : null,
       body: settingsAsync.when(
         data: (settings) {
           if (!_initialized) {
@@ -68,177 +73,199 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             });
           }
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-            children: [
-              _SectionCard(
-                title: '语音提供方式',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SegmentedButton<SpeechProviderMode>(
-                      segments: SpeechProviderMode.values.map((mode) {
-                        return ButtonSegment<SpeechProviderMode>(
-                          value: mode,
-                          label: Text(_modeLabel(mode)),
-                        );
-                      }).toList(),
-                      selected: {_providerMode},
-                      onSelectionChanged: (selection) {
-                        setState(() => _providerMode = selection.first);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    ...SpeechProviderMode.values.map((mode) {
-                      final active = mode == _providerMode;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: active
-                                ? const Color(0xFFE7F2EE)
-                                : const Color(0xFFF7F4EE),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
+          return SafeArea(
+            top: !widget.showAppBar,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              children: [
+                if (!widget.showAppBar) ...[
+                  Text(
+                    '设置',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '管理语音朗读、OpenAI TTS 和试听参数。',
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: const Color(0xFF5D645F),
+                        ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                _SectionCard(
+                  title: '语音提供方式',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SegmentedButton<SpeechProviderMode>(
+                        segments: SpeechProviderMode.values.map((mode) {
+                          return ButtonSegment<SpeechProviderMode>(
+                            value: mode,
+                            label: Text(_modeLabel(mode)),
+                          );
+                        }).toList(),
+                        selected: {_providerMode},
+                        onSelectionChanged: (selection) {
+                          setState(() => _providerMode = selection.first);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      ...SpeechProviderMode.values.map((mode) {
+                        final active = mode == _providerMode;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
                               color: active
-                                  ? const Color(0xFF136B5C)
-                                  : const Color(0xFFE5DED2),
+                                  ? const Color(0xFFE7F2EE)
+                                  : const Color(0xFFF7F4EE),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: active
+                                    ? const Color(0xFF136B5C)
+                                    : const Color(0xFFE5DED2),
+                              ),
+                            ),
+                            child: Text(_modeDescription(mode)),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: 'OpenAI TTS 配置',
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _endpointController,
+                        decoration: const InputDecoration(
+                          labelText: 'Endpoint',
+                          hintText: 'https://api.openai.com/v1/audio/speech',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _apiKeyController,
+                        decoration: const InputDecoration(
+                          labelText: 'API Key',
+                          hintText: 'sk-...',
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _modelController,
+                        decoration: const InputDecoration(
+                          labelText: 'Model',
+                          hintText: 'gpt-4o-mini-tts',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _voiceController,
+                        decoration: const InputDecoration(
+                          labelText: 'Voice',
+                          hintText: 'alloy',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '云端语速 ${_speed.toStringAsFixed(2)}x',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      Slider(
+                        value: _speed,
+                        min: 0.5,
+                        max: 1.5,
+                        divisions: 10,
+                        label: _speed.toStringAsFixed(2),
+                        onChanged: (value) => setState(() => _speed = value),
+                      ),
+                      Text(
+                        '本地 TTS 语速 ${_localSpeechRate.toStringAsFixed(2)}',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      Slider(
+                        value: _localSpeechRate,
+                        min: 0.2,
+                        max: 0.8,
+                        divisions: 12,
+                        label: _localSpeechRate.toStringAsFixed(2),
+                        onChanged: (value) =>
+                            setState(() => _localSpeechRate = value),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: '试听',
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _sampleController,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: '测试文案',
+                          alignLabelWithHint: true,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () async {
+                                final scaffoldMessenger =
+                                    ScaffoldMessenger.of(context);
+                                try {
+                                  final settings = _buildSettings();
+                                  await ref
+                                      .read(
+                                        speechSettingsControllerProvider
+                                            .notifier,
+                                      )
+                                      .save(settings);
+                                  await ref
+                                      .read(readerSpeechServiceProvider)
+                                      .speak(_sampleController.text);
+                                } catch (error) {
+                                  scaffoldMessenger.showSnackBar(
+                                    SnackBar(content: Text('试听失败: $error')),
+                                  );
+                                  return;
+                                }
+                                scaffoldMessenger.showSnackBar(
+                                  const SnackBar(content: Text('已保存并开始试听')),
+                                );
+                              },
+                              child: const Text('保存并试听'),
                             ),
                           ),
-                          child: Text(_modeDescription(mode)),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: 'OpenAI TTS 配置',
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _endpointController,
-                      decoration: const InputDecoration(
-                        labelText: 'Endpoint',
-                        hintText: 'https://api.openai.com/v1/audio/speech',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _apiKeyController,
-                      decoration: const InputDecoration(
-                        labelText: 'API Key',
-                        hintText: 'sk-...',
-                      ),
-                      obscureText: true,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _modelController,
-                      decoration: const InputDecoration(
-                        labelText: 'Model',
-                        hintText: 'gpt-4o-mini-tts',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _voiceController,
-                      decoration: const InputDecoration(
-                        labelText: 'Voice',
-                        hintText: 'alloy',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '云端语速 ${_speed.toStringAsFixed(2)}x',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    Slider(
-                      value: _speed,
-                      min: 0.5,
-                      max: 1.5,
-                      divisions: 10,
-                      label: _speed.toStringAsFixed(2),
-                      onChanged: (value) => setState(() => _speed = value),
-                    ),
-                    Text(
-                      '本地 TTS 语速 ${_localSpeechRate.toStringAsFixed(2)}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    Slider(
-                      value: _localSpeechRate,
-                      min: 0.2,
-                      max: 0.8,
-                      divisions: 12,
-                      label: _localSpeechRate.toStringAsFixed(2),
-                      onChanged: (value) =>
-                          setState(() => _localSpeechRate = value),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: '试听',
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _sampleController,
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: '测试文案',
-                        alignLabelWithHint: true,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () async {
-                              final scaffoldMessenger =
-                                  ScaffoldMessenger.of(context);
-                              try {
-                                final settings = _buildSettings();
-                                await ref
-                                    .read(
-                                      speechSettingsControllerProvider.notifier,
-                                    )
-                                    .save(settings);
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
                                 await ref
                                     .read(readerSpeechServiceProvider)
-                                    .speak(_sampleController.text);
-                              } catch (error) {
-                                scaffoldMessenger.showSnackBar(
-                                  SnackBar(content: Text('试听失败: $error')),
-                                );
-                                return;
-                              }
-                              scaffoldMessenger.showSnackBar(
-                                const SnackBar(content: Text('已保存并开始试听')),
-                              );
-                            },
-                            child: const Text('保存并试听'),
+                                    .stop();
+                              },
+                              child: const Text('停止'),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () async {
-                              await ref.read(readerSpeechServiceProvider).stop();
-                            },
-                            child: const Text('停止'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),

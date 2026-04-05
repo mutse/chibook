@@ -1,3 +1,5 @@
+import 'package:chibook/features/home/presentation/reading_home_screen.dart';
+import 'package:chibook/features/navigation/presentation/app_shell.dart';
 import 'package:chibook/features/bookshelf/presentation/bookshelf_screen.dart';
 import 'package:chibook/features/reader/presentation/reader_screen.dart';
 import 'package:chibook/features/settings/presentation/settings_screen.dart';
@@ -9,7 +11,40 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(
         path: '/',
-        builder: (context, state) => const BookshelfScreen(),
+        redirect: (_, __) => '/reading',
+      ),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return AppShell(navigationShell: navigationShell);
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/reading',
+                builder: (context, state) => const ReadingHomeScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/bookshelf',
+                builder: (context, state) =>
+                    const BookshelfScreen(showAppBar: false),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/tab-settings',
+                builder: (context, state) =>
+                    const SettingsScreen(showAppBar: false),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: '/reader/:bookId',
@@ -20,7 +55,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
+        builder: (context, state) => const SettingsScreen(showAppBar: true),
       ),
     ],
   );
