@@ -5,16 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      ios_export_method:
-        description: iOS export method
-        required: true
-        default: app-store
-        type: choice
-        options:
-          - app-store
-          - ad-hoc
-          - development
 
 permissions:
   contents: write
@@ -43,30 +33,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Prepare Android signing
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "Missing secret: ANDROID_KEYSTORE_BASE64"; exit 1; }
-          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Missing secret: ANDROID_KEYSTORE_PASSWORD"; exit 1; }
-          test -n "$ANDROID_KEY_ALIAS" || { echo "Missing secret: ANDROID_KEY_ALIAS"; exit 1; }
-          test -n "$ANDROID_KEY_PASSWORD" || { echo "Missing secret: ANDROID_KEY_PASSWORD"; exit 1; }
-
-          mkdir -p android/keystore
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/keystore/release.jks
-
-          cat > android/key.properties <<EOF
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyPassword=$ANDROID_KEY_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          storeFile=../keystore/release.jks
-          EOF
-
       - name: Build Android APK
-        run: flutter build apk --release
+        run: flutter build apk --debug
 
       - name: Build Android App Bundle
         run: flutter build appbundle --release
@@ -74,9 +42,9 @@ jobs:
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: android-release
+          name: android-package
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-debug.apk
             build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
@@ -106,75 +74,14 @@ jobs:
         run: pod install
         working-directory: ios
 
-      - name: Prepare iOS signing
-        env:
-          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
-          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
-        run: |
-          test -n "$IOS_CERTIFICATE_P12_BASE64" || { echo "Missing secret: IOS_CERTIFICATE_P12_BASE64"; exit 1; }
-          test -n "$IOS_CERTIFICATE_PASSWORD" || { echo "Missing secret: IOS_CERTIFICATE_PASSWORD"; exit 1; }
-          test -n "$IOS_PROVISIONING_PROFILE_BASE64" || { echo "Missing secret: IOS_PROVISIONING_PROFILE_BASE64"; exit 1; }
-          test -n "$IOS_KEYCHAIN_PASSWORD" || { echo "Missing secret: IOS_KEYCHAIN_PASSWORD"; exit 1; }
-
-          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
-          PROFILE_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          PROFILE_PLIST_PATH="$RUNNER_TEMP/build_profile.plist"
-
-          echo "$IOS_CERTIFICATE_P12_BASE64" | base64 -D > "$CERTIFICATE_PATH"
-          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE_PATH"
-
-          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/build.mobileprovision"
-          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST_PATH"
-
-      - name: Build iOS IPA
-        env:
-          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
-          IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
-          IOS_EXPORT_METHOD: ${{ github.event.inputs.ios_export_method || 'app-store' }}
-        run: |
-          BUNDLE_ID="${IOS_BUNDLE_ID:-ai.chibook.app}"
-          TEAM_ID="${IOS_TEAM_ID:-X87NKU435C}"
-          EXPORT_METHOD="${IOS_EXPORT_METHOD:-app-store}"
-          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/build_profile.plist")"
-
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>$EXPORT_METHOD</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>$TEAM_ID</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>$BUNDLE_ID</key>
-              <string>$PROFILE_NAME</string>
-            </dict>
-          </dict>
-          </plist>
-          EOF
-
-          flutter build ipa --release --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+      - name: Build iOS archive without code signing
+        run: flutter build ios --release --no-codesign
 
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-release
-          path: build/ios/ipa/*.ipa
+          name: ios-package
+          path: build/ios/iphoneos/Runner.app
           if-no-files-found: error
 
   publish-release:

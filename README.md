@@ -76,56 +76,24 @@ This repository now includes two GitHub Actions workflows:
 
 It produces:
 
-- Android `app-release.apk`
+- Android `app-debug.apk`
 - Android `app-release.aab`
-- iOS `ipa`
+- iOS `Runner.app` (unsigned)
 
 When triggered by a tag, the workflow also publishes those artifacts to the corresponding GitHub Release.
 
-### Required GitHub Secrets
+### Signing behavior
 
-Android signing:
+`mobile-release.yml` does not require any GitHub Secrets.
 
-- `ANDROID_KEYSTORE_BASE64`: base64-encoded `.jks` or `.keystore`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
+- Android APK is built as `debug`, so it is signed with the default debug keystore generated in CI.
+- Android AAB is built as `release`, but without a custom production keystore.
+- iOS is built with `--no-codesign`, so the uploaded artifact is an unsigned `.app` bundle rather than an installable `.ipa`.
 
-iOS signing:
-
-- `IOS_CERTIFICATE_P12_BASE64`: base64-encoded distribution certificate `.p12`
-- `IOS_CERTIFICATE_PASSWORD`
-- `IOS_PROVISIONING_PROFILE_BASE64`: base64-encoded `.mobileprovision`
-- `IOS_KEYCHAIN_PASSWORD`: temporary CI keychain password
-
-Optional GitHub Repository Variables:
-
-- `IOS_BUNDLE_ID`: defaults to `ai.chibook.app`
-- `IOS_TEAM_ID`: defaults to `X87NKU435C`
-
-### Secret preparation examples
-
-Encode Android keystore:
-
-```bash
-base64 -i android/keystore/release.jks | pbcopy
-```
-
-Encode iOS certificate:
-
-```bash
-base64 -i Certificates.p12 | pbcopy
-```
-
-Encode provisioning profile:
-
-```bash
-base64 -i profile.mobileprovision | pbcopy
-```
+If you later want production signing and store-ready packages, you can add a separate signed release workflow.
 
 ### Recommended release flow
 
-1. Configure the signing secrets and optional repository variables in GitHub.
-2. Push a version tag such as `v0.1.0`.
-3. Wait for the `Mobile Release` workflow to finish.
-4. Download the artifacts from the workflow run or GitHub Release page.
+1. Push a version tag such as `v0.1.0`, or run the workflow manually in GitHub Actions.
+2. Wait for the `Mobile Release` workflow to finish.
+3. Download the artifacts from the workflow run or GitHub Release page.
