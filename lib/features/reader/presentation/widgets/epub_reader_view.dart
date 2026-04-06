@@ -12,9 +12,11 @@ class EpubReaderView extends ConsumerStatefulWidget {
   const EpubReaderView({
     super.key,
     required this.book,
+    this.compact = false,
   });
 
   final Book book;
+  final bool compact;
 
   @override
   ConsumerState<EpubReaderView> createState() => _EpubReaderViewState();
@@ -27,7 +29,8 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
   @override
   Widget build(BuildContext context) {
     final epubAsync = ref.watch(epubBookProvider(widget.book.filePath));
-    final requestedChapter = ref.watch(currentEpubChapterProvider(widget.book.id));
+    final requestedChapter =
+        ref.watch(currentEpubChapterProvider(widget.book.id));
     final preferencesAsync = ref.watch(readerPreferencesControllerProvider);
     final preferences = preferencesAsync.value ?? ReaderPreferences.defaults();
     final colors = _themeColors(preferences.themeMode);
@@ -46,39 +49,30 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
         _syncChapterState(chapter, chapters.length);
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: EdgeInsets.fromLTRB(8, 0, 8, widget.compact ? 8 : 12),
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: colors.background,
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(widget.compact ? 20 : 28),
             ),
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    widget.compact ? 12 : 20,
+                    16,
+                    widget.compact ? 8 : 12,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              epubBook.title.isEmpty
-                                  ? widget.book.title
-                                  : epubBook.title,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '第 ${boundedIndex + 1} / ${chapters.length} 章',
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        child: Text(
+                          '第 ${boundedIndex + 1} / ${chapters.length} 章',
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     color: colors.secondaryText,
                                   ),
-                            ),
-                          ],
                         ),
                       ),
                       Builder(
@@ -101,14 +95,20 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                 Divider(height: 1, color: colors.divider),
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                    padding: EdgeInsets.fromLTRB(
+                      18,
+                      widget.compact ? 16 : 20,
+                      18,
+                      widget.compact ? 16 : 24,
+                    ),
                     children: [
                       Text(
                         chapter.title,
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: colors.primaryText,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: colors.primaryText,
+                                ),
                       ),
                       const SizedBox(height: 18),
                       SelectionArea(
@@ -143,7 +143,12 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    widget.compact ? 8 : 12,
+                    16,
+                    widget.compact ? 12 : 20,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -193,8 +198,10 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = ref.read(readerControllerProvider);
-      controller.setReaderExcerpt(bookId: widget.book.id, text: chapter.plainText);
-      ref.read(currentEpubChapterProvider(widget.book.id).notifier).state = chapter;
+      controller.setReaderExcerpt(
+          bookId: widget.book.id, text: chapter.plainText);
+      ref.read(currentEpubChapterProvider(widget.book.id).notifier).state =
+          chapter;
       final percentage = total <= 0 ? 0.0 : (chapter.index + 1) / total;
       controller.updateProgress(
         bookId: widget.book.id,

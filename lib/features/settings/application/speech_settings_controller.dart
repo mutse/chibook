@@ -1,4 +1,6 @@
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:chibook/features/reader/application/reader_controller.dart';
+import 'package:chibook/services/reader_speech_service.dart';
 import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,3 +25,7 @@ class SpeechSettingsController extends AsyncNotifier<SpeechSettings> {
     state = AsyncData(settings);
   }
 }
+
+final localVoiceOptionsProvider = FutureProvider<List<LocalVoiceOption>>((ref) {
+  return ref.read(readerSpeechServiceProvider).listLocalVoices();
+});

@@ -15,6 +15,8 @@ class SpeechSettingsService {
       apiKey: prefs.getString('tts_api_key') ?? defaults.apiKey,
       model: prefs.getString('tts_model') ?? defaults.model,
       voice: prefs.getString('tts_voice') ?? defaults.voice,
+      localVoiceId:
+          prefs.getString('tts_local_voice_id') ?? defaults.localVoiceId,
       speed: prefs.getDouble('tts_speed') ?? defaults.speed,
       localSpeechRate:
           prefs.getDouble('tts_local_speech_rate') ?? defaults.localSpeechRate,
@@ -28,6 +30,7 @@ class SpeechSettingsService {
     await prefs.setString('tts_api_key', settings.apiKey);
     await prefs.setString('tts_model', settings.model);
     await prefs.setString('tts_voice', settings.voice);
+    await prefs.setString('tts_local_voice_id', settings.localVoiceId);
     await prefs.setDouble('tts_speed', settings.speed);
     await prefs.setDouble('tts_local_speech_rate', settings.localSpeechRate);
   }

@@ -1,14 +1,12 @@
 import 'package:chibook/data/models/speech_settings.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:chibook/features/settings/application/speech_settings_controller.dart';
+import 'package:chibook/services/reader_speech_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({
-    super.key,
-    this.showAppBar = true,
-  });
+  const SettingsScreen({super.key, this.showAppBar = true});
 
   final bool showAppBar;
 
@@ -25,6 +23,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   SpeechProviderMode _providerMode = SpeechProviderMode.auto;
   double _speed = 1.0;
   double _localSpeechRate = 0.45;
+  String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
+  String _localVoiceId = '';
   bool _initialized = false;
 
   @override
@@ -53,15 +53,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final settingsAsync = ref.watch(speechSettingsControllerProvider);
 
-    ref.listen<AsyncValue<SpeechSettings>>(
-      speechSettingsControllerProvider,
-      (previous, next) {
-        next.whenData((settings) {
-          if (_initialized && previous?.value == settings) return;
-          _applySettings(settings);
-        });
-      },
-    );
+    ref.listen<AsyncValue<SpeechSettings>>(speechSettingsControllerProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((settings) {
+        if (_initialized && previous?.value == settings) return;
+        _applySettings(settings);
+      });
+    });
 
     return Scaffold(
       appBar: widget.showAppBar ? AppBar(title: const Text('朗读设置')) : null,
@@ -167,11 +167,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: ReaderSpeechService.openAiVoices.contains(
+                          _selectedOpenAiVoice,
+                        )
+                            ? _selectedOpenAiVoice
+                            : null,
+                        decoration: const InputDecoration(
+                          labelText: 'OpenAI 声音',
+                        ),
+                        items: ReaderSpeechService.openAiVoices
+                            .map(
+                              (voice) => DropdownMenuItem<String>(
+                                value: voice,
+                                child: Text(voice),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _selectedOpenAiVoice = value;
+                            _voiceController.text = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: _voiceController,
                         decoration: const InputDecoration(
-                          labelText: 'Voice',
-                          hintText: 'alloy',
+                          labelText: '自定义 OpenAI Voice（可选）',
+                          hintText: '例如: alloy',
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -200,6 +226,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onChanged: (value) =>
                             setState(() => _localSpeechRate = value),
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '本地声音',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final localVoicesAsync = ref.watch(
+                            localVoiceOptionsProvider,
+                          );
+                          return localVoicesAsync.when(
+                            data: (voices) {
+                              final hasCurrentSelection =
+                                  _localVoiceId.isNotEmpty &&
+                                      voices.any(
+                                        (voice) => voice.id == _localVoiceId,
+                                      );
+                              final effectiveValue = hasCurrentSelection
+                                  ? _localVoiceId
+                                  : (_localVoiceId.isEmpty ? '' : null);
+                              return DropdownButtonFormField<String>(
+                                initialValue: effectiveValue,
+                                decoration: const InputDecoration(
+                                  labelText: '设备 TTS 声音',
+                                ),
+                                items: [
+                                  const DropdownMenuItem<String>(
+                                    value: '',
+                                    child: Text('系统默认'),
+                                  ),
+                                  ...voices.map(
+                                    (voice) => DropdownMenuItem<String>(
+                                      value: voice.id,
+                                      child: Text(
+                                        voice.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  setState(() {
+                                    _localVoiceId = value ?? '';
+                                  });
+                                },
+                              );
+                            },
+                            loading: () => const LinearProgressIndicator(),
+                            error: (error, stack) => Text(
+                              '读取本地声音失败: $error',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -222,8 +305,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           Expanded(
                             child: FilledButton(
                               onPressed: () async {
-                                final scaffoldMessenger =
-                                    ScaffoldMessenger.of(context);
+                                final scaffoldMessenger = ScaffoldMessenger.of(
+                                  context,
+                                );
                                 try {
                                   final settings = _buildSettings();
                                   await ref
@@ -269,9 +353,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Text('Failed to load settings: $error'),
-        ),
+        error: (error, stack) =>
+            Center(child: Text('Failed to load settings: $error')),
       ),
     );
   }
@@ -283,6 +366,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.text = settings.apiKey;
     _modelController.text = settings.model;
     _voiceController.text = settings.voice;
+    _selectedOpenAiVoice =
+        ReaderSpeechService.openAiVoices.contains(settings.voice)
+            ? settings.voice
+            : ReaderSpeechService.openAiVoices.first;
+    _localVoiceId = settings.localVoiceId;
     _speed = settings.speed;
     _localSpeechRate = settings.localSpeechRate;
     setState(() {});
@@ -295,6 +383,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       apiKey: _apiKeyController.text.trim(),
       model: _modelController.text.trim(),
       voice: _voiceController.text.trim(),
+      localVoiceId: _localVoiceId,
       speed: _speed,
       localSpeechRate: _localSpeechRate,
     );
@@ -318,10 +407,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.child,
-  });
+  const _SectionCard({required this.title, required this.child});
 
   final String title;
   final Widget child;
@@ -336,9 +422,9 @@ class _SectionCard extends StatelessWidget {
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 14),
             child,

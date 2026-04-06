@@ -7,6 +7,7 @@ class SpeechSettings {
     required this.apiKey,
     required this.model,
     required this.voice,
+    required this.localVoiceId,
     required this.speed,
     required this.localSpeechRate,
   });
@@ -18,6 +19,7 @@ class SpeechSettings {
       apiKey: '',
       model: 'gpt-4o-mini-tts',
       voice: 'alloy',
+      localVoiceId: '',
       speed: 1.0,
       localSpeechRate: 0.45,
     );
@@ -28,6 +30,7 @@ class SpeechSettings {
   final String apiKey;
   final String model;
   final String voice;
+  final String localVoiceId;
   final double speed;
   final double localSpeechRate;
 
@@ -39,6 +42,7 @@ class SpeechSettings {
     String? apiKey,
     String? model,
     String? voice,
+    String? localVoiceId,
     double? speed,
     double? localSpeechRate,
   }) {
@@ -48,6 +52,7 @@ class SpeechSettings {
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
       voice: voice ?? this.voice,
+      localVoiceId: localVoiceId ?? this.localVoiceId,
       speed: speed ?? this.speed,
       localSpeechRate: localSpeechRate ?? this.localSpeechRate,
     );

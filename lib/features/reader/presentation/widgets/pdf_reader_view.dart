@@ -11,9 +11,11 @@ class PdfReaderView extends ConsumerStatefulWidget {
   const PdfReaderView({
     super.key,
     required this.book,
+    this.compact = false,
   });
 
   final Book book;
+  final bool compact;
 
   @override
   ConsumerState<PdfReaderView> createState() => _PdfReaderViewState();
@@ -47,9 +49,9 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
     return Stack(
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(widget.compact ? 20 : 28),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: EdgeInsets.fromLTRB(8, 0, 8, widget.compact ? 8 : 12),
             child: SfPdfViewer.file(
               File(widget.book.filePath),
               controller: _pdfViewerController,

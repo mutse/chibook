@@ -22,15 +22,32 @@ class ReaderSpeechService {
   final http.Client _client;
   final AudioPlayer _audioPlayer;
 
+  static const List<String> openAiVoices = [
+    'alloy',
+    'ash',
+    'ballad',
+    'coral',
+    'echo',
+    'fable',
+    'onyx',
+    'nova',
+    'sage',
+    'shimmer',
+    'verse',
+  ];
+
   Future<void> speak(String text) async {
     final config = await _loadConfig();
-    if (config.providerMode != SpeechProviderMode.local && config.hasCloudConfig) {
+    if (config.providerMode != SpeechProviderMode.local &&
+        config.hasCloudConfig) {
       final ok = await _tryCloudSpeech(text, config);
       if (ok) {
         return;
       }
       if (config.providerMode == SpeechProviderMode.openai) {
-        throw Exception('OpenAI TTS request failed. Please check your endpoint or API key.');
+        throw Exception(
+          'OpenAI TTS request failed. Please check your endpoint or API key.',
+        );
       }
     }
     await _speakLocally(text);
@@ -42,7 +59,8 @@ class ReaderSpeechService {
     required String text,
   }) async {
     final config = await _loadConfig();
-    if (config.providerMode != SpeechProviderMode.local && config.hasCloudConfig) {
+    if (config.providerMode != SpeechProviderMode.local &&
+        config.hasCloudConfig) {
       final cachedFile = await _cachedAudioFile(
         bookId: bookId,
         segmentId: segmentId,
@@ -54,16 +72,14 @@ class ReaderSpeechService {
         return;
       }
 
-      final ok = await _tryCloudSpeech(
-        text,
-        config,
-        targetFile: cachedFile,
-      );
+      final ok = await _tryCloudSpeech(text, config, targetFile: cachedFile);
       if (ok) {
         return;
       }
       if (config.providerMode == SpeechProviderMode.openai) {
-        throw Exception('OpenAI TTS request failed. Please check your endpoint or API key.');
+        throw Exception(
+          'OpenAI TTS request failed. Please check your endpoint or API key.',
+        );
       }
     }
     await _speakLocally(text);
@@ -75,7 +91,8 @@ class ReaderSpeechService {
     required String text,
   }) async {
     final config = await _loadConfig();
-    if (config.providerMode == SpeechProviderMode.local || !config.hasCloudConfig) {
+    if (config.providerMode == SpeechProviderMode.local ||
+        !config.hasCloudConfig) {
       return;
     }
 
@@ -105,7 +122,8 @@ class ReaderSpeechService {
     required String text,
   }) async {
     final config = await _loadConfig();
-    if (config.providerMode == SpeechProviderMode.local || !config.hasCloudConfig) {
+    if (config.providerMode == SpeechProviderMode.local ||
+        !config.hasCloudConfig) {
       return false;
     }
     final file = await _cachedAudioFile(
@@ -136,7 +154,67 @@ class ReaderSpeechService {
     await _audioPlayer.stop();
     await _flutterTts.setSpeechRate(config.localSpeechRate);
     await _flutterTts.setPitch(1.0);
+    if (config.localVoiceId.isNotEmpty) {
+      await _setLocalVoiceById(config.localVoiceId);
+    }
     await _flutterTts.speak(text);
+  }
+
+  Future<List<LocalVoiceOption>> listLocalVoices() async {
+    try {
+      final voicesRaw = await _flutterTts.getVoices;
+      if (voicesRaw is! List) return const [];
+      final voices = <LocalVoiceOption>[];
+      for (final item in voicesRaw) {
+        if (item is! Map) continue;
+        final normalized = Map<String, dynamic>.from(item);
+        final id = _readVoiceField(normalized, ['name', 'identifier', 'id']);
+        if (id.isEmpty) continue;
+        voices.add(
+          LocalVoiceOption(
+            id: id,
+            name: _readVoiceField(normalized, [
+              'displayName',
+              'name',
+              'identifier',
+              'id',
+            ]),
+            locale: _readVoiceField(normalized, ['locale']),
+            gender: _readVoiceField(normalized, ['gender', 'sex']),
+          ),
+        );
+      }
+      voices.sort((a, b) => a.label.compareTo(b.label));
+      return voices;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _setLocalVoiceById(String voiceId) async {
+    final voicesRaw = await _flutterTts.getVoices;
+    if (voicesRaw is! List) return;
+    for (final item in voicesRaw) {
+      if (item is! Map) continue;
+      final normalized = Map<String, dynamic>.from(item);
+      final id = _readVoiceField(normalized, ['name', 'identifier', 'id']);
+      if (id != voiceId) continue;
+      await _flutterTts.setVoice({
+        'name': _readVoiceField(normalized, ['name', 'displayName', 'id']),
+        'locale': _readVoiceField(normalized, ['locale']),
+      });
+      return;
+    }
+  }
+
+  String _readVoiceField(Map<String, dynamic> voice, List<String> keys) {
+    for (final key in keys) {
+      final value = voice[key];
+      if (value == null) continue;
+      final text = value.toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return '';
   }
 
   Future<bool> _tryCloudSpeech(
@@ -186,6 +264,7 @@ class ReaderSpeechService {
       apiKey: prefs.getString('tts_api_key') ?? '',
       model: prefs.getString('tts_model') ?? 'gpt-4o-mini-tts',
       voice: prefs.getString('tts_voice') ?? 'alloy',
+      localVoiceId: prefs.getString('tts_local_voice_id') ?? '',
       speed: prefs.getDouble('tts_speed') ?? 1.0,
       localSpeechRate: prefs.getDouble('tts_local_speech_rate') ?? 0.45,
     );
@@ -201,7 +280,10 @@ class ReaderSpeechService {
   Future<File> _uncachedAudioFile() async {
     final directory = await getTemporaryDirectory();
     return File(
-      path.join(directory.path, 'speech_${DateTime.now().microsecondsSinceEpoch}.mp3'),
+      path.join(
+        directory.path,
+        'speech_${DateTime.now().microsecondsSinceEpoch}.mp3',
+      ),
     );
   }
 
@@ -225,7 +307,9 @@ class ReaderSpeechService {
 
   Future<void> _playCachedFile(File file) async {
     await _audioPlayer.stop();
-    await _audioPlayer.play(DeviceFileSource(file.path, mimeType: 'audio/mpeg'));
+    await _audioPlayer.play(
+      DeviceFileSource(file.path, mimeType: 'audio/mpeg'),
+    );
   }
 
   String _cacheKey(String input) {
@@ -250,6 +334,7 @@ class SpeechConfig {
     required this.apiKey,
     required this.model,
     required this.voice,
+    required this.localVoiceId,
     required this.speed,
     required this.localSpeechRate,
   });
@@ -259,8 +344,32 @@ class SpeechConfig {
   final String apiKey;
   final String model;
   final String voice;
+  final String localVoiceId;
   final double speed;
   final double localSpeechRate;
 
   bool get hasCloudConfig => endpoint.isNotEmpty && apiKey.isNotEmpty;
+}
+
+class LocalVoiceOption {
+  const LocalVoiceOption({
+    required this.id,
+    required this.name,
+    required this.locale,
+    required this.gender,
+  });
+
+  final String id;
+  final String name;
+  final String locale;
+  final String gender;
+
+  String get label {
+    final parts = <String>[
+      if (name.isNotEmpty) name else id,
+      if (locale.isNotEmpty) locale,
+      if (gender.isNotEmpty) gender,
+    ];
+    return parts.join(' · ');
+  }
 }
