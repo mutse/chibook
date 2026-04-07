@@ -1,8 +1,11 @@
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/data/models/epub_models.dart';
+import 'package:chibook/data/models/pdf_chapter_data.dart';
+import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
 import 'package:chibook/data/models/reading_progress.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
+import 'package:chibook/services/pdf_chapter_service.dart';
 import 'package:chibook/services/reader_speech_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +13,10 @@ enum ReaderSpeechState { idle, playing, paused, caching }
 
 final readerSpeechServiceProvider = Provider<ReaderSpeechService>((ref) {
   return ReaderSpeechService();
+});
+
+final pdfChapterServiceProvider = Provider<PdfChapterService>((ref) {
+  return PdfChapterService();
 });
 
 final currentBookProvider =
@@ -23,7 +30,8 @@ class ReaderController {
   final Ref ref;
 
   Future<void> speakExcerpt(String text) async {
-    ref.read(readerSpeechStateProvider.notifier).state = ReaderSpeechState.playing;
+    ref.read(readerSpeechStateProvider.notifier).state =
+        ReaderSpeechState.playing;
     await ref.read(readerSpeechServiceProvider).speak(text);
   }
 
@@ -32,7 +40,8 @@ class ReaderController {
     required String segmentId,
     required String text,
   }) async {
-    ref.read(readerSpeechStateProvider.notifier).state = ReaderSpeechState.playing;
+    ref.read(readerSpeechStateProvider.notifier).state =
+        ReaderSpeechState.playing;
     await ref.read(readerSpeechServiceProvider).speakCachedSegment(
           bookId: bookId,
           segmentId: segmentId,
@@ -45,7 +54,8 @@ class ReaderController {
     required String segmentId,
     required String text,
   }) async {
-    ref.read(readerSpeechStateProvider.notifier).state = ReaderSpeechState.caching;
+    ref.read(readerSpeechStateProvider.notifier).state =
+        ReaderSpeechState.caching;
     await ref.read(readerSpeechServiceProvider).cacheSegment(
           bookId: bookId,
           segmentId: segmentId,
@@ -67,7 +77,8 @@ class ReaderController {
   }
 
   Future<void> pauseSpeech() async {
-    ref.read(readerSpeechStateProvider.notifier).state = ReaderSpeechState.paused;
+    ref.read(readerSpeechStateProvider.notifier).state =
+        ReaderSpeechState.paused;
     await ref.read(readerSpeechServiceProvider).pause();
   }
 
@@ -77,7 +88,8 @@ class ReaderController {
   }
 
   Future<void> resumeSpeech() async {
-    ref.read(readerSpeechStateProvider.notifier).state = ReaderSpeechState.playing;
+    ref.read(readerSpeechStateProvider.notifier).state =
+        ReaderSpeechState.playing;
     await ref.read(readerSpeechServiceProvider).resume();
   }
 
@@ -108,6 +120,17 @@ final readerControllerProvider = Provider(ReaderController.new);
 
 final currentEpubChapterProvider =
     StateProvider.family<EpubChapterData?, String>((ref, bookId) => null);
+
+final currentPdfChapterProvider =
+    StateProvider.family<PdfChapterData?, String>((ref, bookId) => null);
+
+final requestedPdfPageProvider =
+    StateProvider.family<int?, String>((ref, bookId) => null);
+
+final pdfChapterTocProvider =
+    FutureProvider.family<List<PdfChapterTocItem>, String>((ref, filePath) {
+  return ref.read(pdfChapterServiceProvider).listChapters(filePath);
+});
 
 final readerSpeechStateProvider =
     StateProvider<ReaderSpeechState>((ref) => ReaderSpeechState.idle);

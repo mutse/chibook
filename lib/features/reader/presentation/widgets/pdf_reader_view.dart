@@ -24,7 +24,7 @@ class PdfReaderView extends ConsumerStatefulWidget {
 class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
   late final PdfViewerController _pdfViewerController;
   String _selectedText = '';
-  bool _didSeedDefaultExcerpt = false;
+  int _activePageNumber = 1;
 
   @override
   void initState() {
@@ -35,16 +35,11 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.read(readerControllerProvider);
-    if (!_didSeedDefaultExcerpt && _selectedText.isEmpty) {
-      _didSeedDefaultExcerpt = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        controller.setReaderExcerpt(
-          bookId: widget.book.id,
-          text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
-        );
-      });
-    }
+    ref.listen<int?>(requestedPdfPageProvider(widget.book.id), (_, nextPage) {
+      if (nextPage == null || nextPage == _activePageNumber) return;
+      _pdfViewerController.jumpToPage(nextPage);
+      ref.read(requestedPdfPageProvider(widget.book.id).notifier).state = null;
+    });
 
     return Stack(
       children: [
@@ -58,6 +53,9 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
               interactionMode: PdfInteractionMode.selection,
               enableTextSelection: true,
               canShowTextSelectionMenu: true,
+              onDocumentLoaded: (_) {
+                _syncCurrentChapter(1);
+              },
               onTextSelectionChanged: (details) {
                 final nextText = details.selectedText?.trim() ?? '';
                 setState(() {
@@ -69,21 +67,16 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
                     text: _selectedText,
                   );
                 } else {
-                  controller.setReaderExcerpt(
-                    bookId: widget.book.id,
-                    text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
-                  );
+                  _syncCurrentChapter(_activePageNumber);
                 }
               },
               onTap: (_) {
                 if (_selectedText.isEmpty) return;
                 setState(() => _selectedText = '');
-                controller.setReaderExcerpt(
-                  bookId: widget.book.id,
-                  text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
-                );
+                _syncCurrentChapter(_activePageNumber);
               },
               onPageChanged: (details) {
+                _activePageNumber = details.newPageNumber;
                 final totalPages = _pdfViewerController.pageCount;
                 final percentage = totalPages <= 0
                     ? 0.0
@@ -95,6 +88,9 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
                   location: 'page:${details.newPageNumber}',
                   percentage: percentage,
                 );
+                if (_selectedText.isEmpty) {
+                  _syncCurrentChapter(details.newPageNumber);
+                }
               },
             ),
           ),
@@ -113,14 +109,29 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
               },
               onClear: () {
                 setState(() => _selectedText = '');
-                controller.setReaderExcerpt(
-                  bookId: widget.book.id,
-                  text: '${widget.book.title} 当前为 PDF 阅读模式。请手动选中段落后扩展为文本朗读。',
-                );
+                _syncCurrentChapter(_activePageNumber);
               },
             ),
           ),
       ],
     );
+  }
+
+  Future<void> _syncCurrentChapter(int pageNumber) async {
+    final requestPageNumber = pageNumber;
+    final chapter =
+        await ref.read(pdfChapterServiceProvider).resolveCurrentChapter(
+              filePath: widget.book.filePath,
+              pageNumber: pageNumber,
+            );
+    if (!mounted || requestPageNumber != _activePageNumber) return;
+    ref.read(currentPdfChapterProvider(widget.book.id).notifier).state =
+        chapter;
+    ref.read(readerControllerProvider).setReaderExcerpt(
+          bookId: widget.book.id,
+          text: chapter.text.isEmpty
+              ? '${widget.book.title} 当前页暂无可朗读文本。'
+              : chapter.text,
+        );
   }
 }

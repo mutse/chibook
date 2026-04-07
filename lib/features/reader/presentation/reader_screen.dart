@@ -1,4 +1,6 @@
 import 'package:chibook/data/models/book.dart';
+import 'package:chibook/data/models/pdf_chapter_data.dart';
+import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
 import 'package:chibook/data/models/reader_preferences.dart';
 import 'package:chibook/data/models/speech_settings.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
@@ -79,7 +81,7 @@ class ReaderScreen extends ConsumerWidget {
   }
 }
 
-class _ReaderHeader extends StatelessWidget {
+class _ReaderHeader extends ConsumerWidget {
   const _ReaderHeader({
     required this.book,
     required this.colors,
@@ -91,7 +93,16 @@ class _ReaderHeader extends StatelessWidget {
   final bool isLandscape;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final epubChapter = ref.watch(currentEpubChapterProvider(book.id));
+    final pdfChapter = ref.watch(currentPdfChapterProvider(book.id));
+    final locationLabel = epubChapter != null
+        ? epubChapter.title
+        : pdfChapter != null
+            ? _pdfChapterLabel(pdfChapter)
+            : null;
+    final canOpenLocation = epubChapter != null || pdfChapter != null;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
           12, isLandscape ? 6 : 12, 12, isLandscape ? 6 : 12),
@@ -138,6 +149,62 @@ class _ReaderHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (locationLabel != null) ...[
+                  SizedBox(height: isLandscape ? 2 : 4),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: !canOpenLocation
+                        ? null
+                        : () {
+                            if (epubChapter != null) {
+                              Scaffold.maybeOf(context)?.openEndDrawer();
+                              return;
+                            }
+                            showModalBottomSheet<void>(
+                              context: context,
+                              showDragHandle: true,
+                              builder: (context) =>
+                                  _PdfChapterSheet(book: book),
+                            );
+                          },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: colors.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              locationLabel,
+                              style: TextStyle(
+                                color: colors.secondaryForeground,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (canOpenLocation) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.arrow_drop_down,
+                              size: 16,
+                              color: colors.secondaryForeground,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -169,19 +236,33 @@ class _SpeechBar extends ConsumerWidget {
     final controller = ref.read(readerControllerProvider);
     final excerpt = ref.watch(readerExcerptProvider(book.id));
     final chapter = ref.watch(currentEpubChapterProvider(book.id));
+    final pdfChapter = ref.watch(currentPdfChapterProvider(book.id));
     final speechState = ref.watch(readerSpeechStateProvider);
     final speechText = chapter != null
         ? chapter.plainText
-        : (excerpt.trim().isEmpty
-            ? '现在开始朗读 ${book.title}。请在设置页完成 OpenAI TTS 配置，或者切换到本地 TTS。'
-            : excerpt);
-    final canCacheChapter = chapter != null && speechText.trim().isNotEmpty;
+        : pdfChapter != null
+            ? pdfChapter.text
+            : (excerpt.trim().isEmpty
+                ? '现在开始朗读 ${book.title}。请在设置页完成 OpenAI TTS 配置，或者切换到本地 TTS。'
+                : excerpt);
+    final segmentId = chapter != null
+        ? 'epub-chapter-${chapter.index}'
+        : pdfChapter != null
+            ? pdfChapter.segmentId
+            : 'default';
+    final canCacheChapter =
+        (chapter != null || pdfChapter != null) && speechText.trim().isNotEmpty;
+    final chapterLabel = chapter != null
+        ? 'EPUB 当前章节'
+        : pdfChapter != null
+            ? _pdfChapterLabel(pdfChapter)
+            : null;
     final cacheStatusAsync = canCacheChapter
         ? ref.watch(
             _chapterCacheStatusProvider(
               _ChapterCacheRequest(
                 bookId: book.id,
-                segmentId: 'epub-chapter-${chapter.index}',
+                segmentId: segmentId,
                 text: speechText,
               ),
             ),
@@ -230,6 +311,18 @@ class _SpeechBar extends ConsumerWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (chapterLabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      chapterLabel,
+                      style: TextStyle(
+                        color: colors.secondaryForeground,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -239,7 +332,15 @@ class _SpeechBar extends ConsumerWidget {
                 if (chapter != null) {
                   controller.speakBookSegment(
                     bookId: book.id,
-                    segmentId: 'epub-chapter-${chapter.index}',
+                    segmentId: segmentId,
+                    text: speechText,
+                  );
+                  return;
+                }
+                if (pdfChapter != null) {
+                  controller.speakBookSegment(
+                    bookId: book.id,
+                    segmentId: segmentId,
                     text: speechText,
                   );
                   return;
@@ -251,7 +352,13 @@ class _SpeechBar extends ConsumerWidget {
                 );
               },
               icon: const Icon(Icons.play_arrow),
-              label: Text(chapter != null ? '朗读本章' : '播放'),
+              label: Text(
+                chapter != null
+                    ? '朗读本章'
+                    : pdfChapter != null
+                        ? '朗读当前章节'
+                        : '播放',
+              ),
             ),
             const SizedBox(width: 4),
             IconButton(
@@ -291,14 +398,14 @@ class _SpeechBar extends ConsumerWidget {
                     : () async {
                         await controller.cacheBookSegment(
                           bookId: book.id,
-                          segmentId: 'epub-chapter-${chapter.index}',
+                          segmentId: segmentId,
                           text: speechText,
                         );
                         ref.invalidate(
                           _chapterCacheStatusProvider(
                             _ChapterCacheRequest(
                               bookId: book.id,
-                              segmentId: 'epub-chapter-${chapter.index}',
+                              segmentId: segmentId,
                               text: speechText,
                             ),
                           ),
@@ -327,6 +434,21 @@ String _speechStateLabel(ReaderSpeechState state, bool cached) {
     ReaderSpeechState.caching => '缓存章节音频中',
   };
   return cached ? '$stateLabel · 本章已缓存' : stateLabel;
+}
+
+String _pdfChapterLabel(PdfChapterData chapter) {
+  final pageLabel = chapter.isSinglePage
+      ? '第 ${chapter.startPage} 页'
+      : '第 ${chapter.startPage}-${chapter.endPage} 页';
+  final title = chapter.title.trim();
+  if (title.isEmpty) return pageLabel;
+  return '$title · $pageLabel';
+}
+
+String _pdfTocPageLabel(PdfChapterTocItem item) {
+  return item.isSinglePage
+      ? '第 ${item.startPage} 页'
+      : '第 ${item.startPage}-${item.endPage} 页';
 }
 
 class _ChapterCacheRequest {
@@ -402,10 +524,14 @@ class _EpubTocDrawer extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   onTap: () {
+                    final messenger = ScaffoldMessenger.of(context);
                     ref
                         .read(currentEpubChapterProvider(book.id).notifier)
                         .state = chapter;
                     Navigator.of(context).pop(chapter.index);
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('已跳转到 ${chapter.title}')),
+                    );
                   },
                 );
               }),
@@ -459,6 +585,78 @@ class _ScreenColors {
   final Color foreground;
   final Color secondaryForeground;
   final Color border;
+}
+
+class _PdfChapterSheet extends ConsumerWidget {
+  const _PdfChapterSheet({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tocAsync = ref.watch(pdfChapterTocProvider(book.filePath));
+    final currentChapter = ref.watch(currentPdfChapterProvider(book.id));
+
+    return SafeArea(
+      child: tocAsync.when(
+        data: (items) {
+          if (items.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('当前 PDF 没有可用目录，将按当前页朗读。'),
+            );
+          }
+          return ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              Text(
+                'PDF 目录',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              ...items.map((item) {
+                final selected = currentChapter?.startPage == item.startPage &&
+                    currentChapter?.endPage == item.endPage;
+                return ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  selected: selected,
+                  selectedTileColor: const Color(0xFFE7F2EE),
+                  title: Text(
+                    item.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(_pdfTocPageLabel(item)),
+                  onTap: () {
+                    final messenger = ScaffoldMessenger.of(context);
+                    ref.read(requestedPdfPageProvider(book.id).notifier).state =
+                        item.startPage;
+                    Navigator.of(context).pop();
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('已跳转到 ${item.title}')),
+                    );
+                  },
+                );
+              }),
+            ],
+          );
+        },
+        loading: () => const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+        error: (error, stack) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('目录加载失败: $error'),
+        ),
+      ),
+    );
+  }
 }
 
 class _VoiceQuickSheet extends ConsumerStatefulWidget {

@@ -24,6 +24,7 @@ dependencies:
   audioplayers: ^6.1.0
   epub_plus: ^5.0.0
   flutter_html: ^3.0.0-beta.2
+  syncfusion_flutter_pdf: ^27.1.48
   syncfusion_flutter_pdfviewer: ^27.1.48
 
 dev_dependencies:
