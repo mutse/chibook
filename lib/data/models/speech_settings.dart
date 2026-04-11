@@ -1,8 +1,11 @@
-enum SpeechProviderMode { auto, openai, local }
+enum SpeechProviderMode { auto, cloud, local }
+
+enum CloudTtsProvider { openai, elevenlabs }
 
 class SpeechSettings {
   const SpeechSettings({
     required this.providerMode,
+    required this.cloudProvider,
     required this.endpoint,
     required this.apiKey,
     required this.model,
@@ -15,6 +18,7 @@ class SpeechSettings {
   factory SpeechSettings.defaults() {
     return const SpeechSettings(
       providerMode: SpeechProviderMode.auto,
+      cloudProvider: CloudTtsProvider.openai,
       endpoint: 'https://api.openai.com/v1/audio/speech',
       apiKey: '',
       model: 'gpt-4o-mini-tts',
@@ -26,6 +30,7 @@ class SpeechSettings {
   }
 
   final SpeechProviderMode providerMode;
+  final CloudTtsProvider cloudProvider;
   final String endpoint;
   final String apiKey;
   final String model;
@@ -38,6 +43,7 @@ class SpeechSettings {
 
   SpeechSettings copyWith({
     SpeechProviderMode? providerMode,
+    CloudTtsProvider? cloudProvider,
     String? endpoint,
     String? apiKey,
     String? model,
@@ -48,6 +54,7 @@ class SpeechSettings {
   }) {
     return SpeechSettings(
       providerMode: providerMode ?? this.providerMode,
+      cloudProvider: cloudProvider ?? this.cloudProvider,
       endpoint: endpoint ?? this.endpoint,
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
@@ -56,5 +63,27 @@ class SpeechSettings {
       speed: speed ?? this.speed,
       localSpeechRate: localSpeechRate ?? this.localSpeechRate,
     );
+  }
+
+  static String defaultEndpointFor(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'https://api.openai.com/v1/audio/speech',
+      CloudTtsProvider.elevenlabs =>
+        'https://api.elevenlabs.io/v1/text-to-speech',
+    };
+  }
+
+  static String defaultModelFor(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'gpt-4o-mini-tts',
+      CloudTtsProvider.elevenlabs => 'eleven_multilingual_v2',
+    };
+  }
+
+  static String defaultVoiceFor(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'alloy',
+      CloudTtsProvider.elevenlabs => '',
+    };
   }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
@@ -36,6 +37,13 @@ class ReaderSpeechService {
     'verse',
   ];
 
+  static const List<String> elevenLabsModels = [
+    'eleven_multilingual_v2',
+    'eleven_turbo_v2_5',
+    'eleven_flash_v2_5',
+    'eleven_v3',
+  ];
+
   Future<void> speak(String text) async {
     final config = await _loadConfig();
     if (config.providerMode != SpeechProviderMode.local &&
@@ -44,9 +52,9 @@ class ReaderSpeechService {
       if (ok) {
         return;
       }
-      if (config.providerMode == SpeechProviderMode.openai) {
+      if (config.providerMode == SpeechProviderMode.cloud) {
         throw Exception(
-          'OpenAI TTS request failed. Please check your endpoint or API key.',
+          '${config.cloudProviderLabel} TTS request failed. Please check your endpoint, voice and API key.',
         );
       }
     }
@@ -76,9 +84,9 @@ class ReaderSpeechService {
       if (ok) {
         return;
       }
-      if (config.providerMode == SpeechProviderMode.openai) {
+      if (config.providerMode == SpeechProviderMode.cloud) {
         throw Exception(
-          'OpenAI TTS request failed. Please check your endpoint or API key.',
+          '${config.cloudProviderLabel} TTS request failed. Please check your endpoint, voice and API key.',
         );
       }
     }
@@ -111,8 +119,8 @@ class ReaderSpeechService {
       targetFile: cachedFile,
       autoplay: false,
     );
-    if (!ok && config.providerMode == SpeechProviderMode.openai) {
-      throw Exception('OpenAI TTS cache request failed.');
+    if (!ok && config.providerMode == SpeechProviderMode.cloud) {
+      throw Exception('${config.cloudProviderLabel} TTS cache request failed.');
     }
   }
 
@@ -191,6 +199,50 @@ class ReaderSpeechService {
     }
   }
 
+  Future<List<CloudVoiceOption>> listElevenLabsVoices({
+    required String apiKey,
+    required String endpoint,
+  }) async {
+    final normalizedApiKey = apiKey.trim();
+    if (normalizedApiKey.isEmpty) {
+      return const [];
+    }
+
+    final voicesEndpoint = _elevenLabsVoicesUri(endpoint);
+    final response = await _client.get(
+      voicesEndpoint,
+      headers: {
+        'xi-api-key': normalizedApiKey,
+        'Accept': 'application/json',
+      },
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+          'Failed to load ElevenLabs voices (${response.statusCode}).');
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) return const [];
+    final voicesRaw = decoded['voices'];
+    if (voicesRaw is! List) return const [];
+
+    final voices = voicesRaw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .map(
+          (item) => CloudVoiceOption(
+            id: item['voice_id']?.toString().trim() ?? '',
+            name: item['name']?.toString().trim() ?? '',
+            category: item['category']?.toString().trim() ?? '',
+          ),
+        )
+        .where((voice) => voice.id.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.label.compareTo(b.label));
+    return voices;
+  }
+
   Future<void> _setLocalVoiceById(String voiceId) async {
     final voicesRaw = await _flutterTts.getVoices;
     if (voicesRaw is! List) return;
@@ -225,20 +277,11 @@ class ReaderSpeechService {
   }) async {
     try {
       await _flutterTts.stop();
-      final response = await _client.post(
-        Uri.parse(config.endpoint),
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': config.model,
-          'voice': config.voice,
-          'input': text,
-          'speed': config.speed,
-          'response_format': 'mp3',
-        }),
-      );
+      final response = switch (config.cloudProvider) {
+        CloudTtsProvider.openai => await _postOpenAiSpeech(text, config),
+        CloudTtsProvider.elevenlabs =>
+          await _postElevenLabsSpeech(text, config),
+      };
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return false;
@@ -257,24 +300,127 @@ class ReaderSpeechService {
 
   Future<SpeechConfig> _loadConfig() async {
     final prefs = await SharedPreferences.getInstance();
-    final providerModeName = prefs.getString('tts_provider_mode') ?? '';
+    final providerModeName =
+        prefs.getString(SpeechSettingsStorageKeys.providerMode) ??
+            prefs.getString(SpeechSettingsStorageKeys.legacyProviderMode) ??
+            '';
+    final cloudProvider = _parseCloudProvider(
+          prefs.getString(SpeechSettingsStorageKeys.cloudProvider) ??
+              prefs.getString(SpeechSettingsStorageKeys.legacyCloudProvider),
+        ) ??
+        CloudTtsProvider.openai;
     return SpeechConfig(
       providerMode: _parseMode(providerModeName),
-      endpoint: prefs.getString('tts_endpoint') ?? '',
-      apiKey: prefs.getString('tts_api_key') ?? '',
-      model: prefs.getString('tts_model') ?? 'gpt-4o-mini-tts',
-      voice: prefs.getString('tts_voice') ?? 'alloy',
-      localVoiceId: prefs.getString('tts_local_voice_id') ?? '',
-      speed: prefs.getDouble('tts_speed') ?? 1.0,
-      localSpeechRate: prefs.getDouble('tts_local_speech_rate') ?? 0.45,
+      cloudProvider: cloudProvider,
+      endpoint: prefs.getString(SpeechSettingsStorageKeys.endpoint) ??
+          prefs.getString(SpeechSettingsStorageKeys.legacyEndpoint) ??
+          SpeechSettings.defaultEndpointFor(cloudProvider),
+      apiKey: prefs.getString(SpeechSettingsStorageKeys.apiKey) ??
+          prefs.getString(SpeechSettingsStorageKeys.legacyApiKey) ??
+          '',
+      model: prefs.getString(SpeechSettingsStorageKeys.model) ??
+          prefs.getString(SpeechSettingsStorageKeys.legacyModel) ??
+          SpeechSettings.defaultModelFor(cloudProvider),
+      voice: prefs.getString(SpeechSettingsStorageKeys.voice) ??
+          prefs.getString(SpeechSettingsStorageKeys.legacyVoice) ??
+          SpeechSettings.defaultVoiceFor(cloudProvider),
+      localVoiceId: prefs.getString(SpeechSettingsStorageKeys.localVoiceId) ??
+          prefs.getString(SpeechSettingsStorageKeys.legacyLocalVoiceId) ??
+          '',
+      speed: prefs.getDouble(SpeechSettingsStorageKeys.speed) ??
+          prefs.getDouble(SpeechSettingsStorageKeys.legacySpeed) ??
+          1.0,
+      localSpeechRate:
+          prefs.getDouble(SpeechSettingsStorageKeys.localSpeechRate) ??
+              prefs.getDouble(
+                SpeechSettingsStorageKeys.legacyLocalSpeechRate,
+              ) ??
+              0.45,
     );
   }
 
   SpeechProviderMode _parseMode(String value) {
+    if (value == 'openai') return SpeechProviderMode.cloud;
     for (final mode in SpeechProviderMode.values) {
       if (mode.name == value) return mode;
     }
     return SpeechProviderMode.auto;
+  }
+
+  CloudTtsProvider? _parseCloudProvider(String? value) {
+    if (value == null || value.isEmpty) return null;
+    for (final provider in CloudTtsProvider.values) {
+      if (provider.name == value) return provider;
+    }
+    return null;
+  }
+
+  Future<http.Response> _postOpenAiSpeech(
+    String text,
+    SpeechConfig config,
+  ) async {
+    return _client.post(
+      Uri.parse(config.endpoint),
+      headers: {
+        'Authorization': 'Bearer ${config.apiKey}',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'model': config.model,
+        'voice': config.voice,
+        'input': text,
+        'speed': config.speed,
+        'response_format': 'mp3',
+      }),
+    );
+  }
+
+  Future<http.Response> _postElevenLabsSpeech(
+    String text,
+    SpeechConfig config,
+  ) async {
+    final voiceId = config.voice.trim();
+    if (voiceId.isEmpty) {
+      throw Exception('ElevenLabs voice ID is required.');
+    }
+
+    final baseEndpoint = config.endpoint.trim().isEmpty
+        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs)
+        : config.endpoint.trim();
+    final endpoint = baseEndpoint.contains('{voice_id}')
+        ? baseEndpoint.replaceAll('{voice_id}', voiceId)
+        : '$baseEndpoint/$voiceId';
+
+    final uri = Uri.parse(endpoint).replace(
+      queryParameters: {
+        ...Uri.parse(endpoint).queryParameters,
+        'output_format': 'mp3_44100_128',
+      },
+    );
+
+    return _client.post(
+      uri,
+      headers: {
+        'xi-api-key': config.apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+      },
+      body: jsonEncode({
+        'text': text,
+        'model_id': config.model,
+        'voice_settings': {
+          'speed': config.speed,
+        },
+      }),
+    );
+  }
+
+  Uri _elevenLabsVoicesUri(String endpoint) {
+    final baseEndpoint = endpoint.trim().isEmpty
+        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs)
+        : endpoint.trim();
+    final uri = Uri.parse(baseEndpoint);
+    return uri.replace(path: '/v2/voices', queryParameters: null);
   }
 
   Future<File> _uncachedAudioFile() async {
@@ -330,6 +476,7 @@ class ReaderSpeechService {
 class SpeechConfig {
   const SpeechConfig({
     required this.providerMode,
+    required this.cloudProvider,
     required this.endpoint,
     required this.apiKey,
     required this.model,
@@ -340,6 +487,7 @@ class SpeechConfig {
   });
 
   final SpeechProviderMode providerMode;
+  final CloudTtsProvider cloudProvider;
   final String endpoint;
   final String apiKey;
   final String model;
@@ -349,6 +497,13 @@ class SpeechConfig {
   final double localSpeechRate;
 
   bool get hasCloudConfig => endpoint.isNotEmpty && apiKey.isNotEmpty;
+
+  String get cloudProviderLabel {
+    return switch (cloudProvider) {
+      CloudTtsProvider.openai => 'OpenAI',
+      CloudTtsProvider.elevenlabs => 'ElevenLabs',
+    };
+  }
 }
 
 class LocalVoiceOption {
@@ -371,5 +526,25 @@ class LocalVoiceOption {
       if (gender.isNotEmpty) gender,
     ];
     return parts.join(' · ');
+  }
+}
+
+class CloudVoiceOption {
+  const CloudVoiceOption({
+    required this.id,
+    required this.name,
+    required this.category,
+  });
+
+  final String id;
+  final String name;
+  final String category;
+
+  String get label {
+    if (category.isEmpty) {
+      return name.isEmpty ? id : name;
+    }
+    final displayName = name.isEmpty ? id : name;
+    return '$displayName · $category';
   }
 }
