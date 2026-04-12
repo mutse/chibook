@@ -203,7 +203,7 @@ class ReaderSpeechService {
     required String apiKey,
     required String endpoint,
   }) async {
-    final normalizedApiKey = apiKey.trim();
+    final normalizedApiKey = _normalizeApiKey(apiKey);
     if (normalizedApiKey.isEmpty) {
       return const [];
     }
@@ -219,7 +219,8 @@ class ReaderSpeechService {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
-          'Failed to load ElevenLabs voices (${response.statusCode}).');
+        'Failed to load ElevenLabs voices (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+      );
     }
 
     final decoded = jsonDecode(response.body);
@@ -362,7 +363,7 @@ class ReaderSpeechService {
     return _client.post(
       Uri.parse(config.endpoint),
       headers: {
-        'Authorization': 'Bearer ${config.apiKey}',
+        'Authorization': 'Bearer ${_normalizeApiKey(config.apiKey)}',
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
@@ -401,7 +402,7 @@ class ReaderSpeechService {
     return _client.post(
       uri,
       headers: {
-        'xi-api-key': config.apiKey,
+        'xi-api-key': _normalizeApiKey(config.apiKey),
         'Content-Type': 'application/json',
         'Accept': 'audio/mpeg',
       },
@@ -421,6 +422,42 @@ class ReaderSpeechService {
         : endpoint.trim();
     final uri = Uri.parse(baseEndpoint);
     return uri.replace(path: '/v2/voices', queryParameters: null);
+  }
+
+  String _normalizeApiKey(String raw) {
+    var value = raw.trim();
+    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+      value = value.substring(1, value.length - 1).trim();
+    }
+    value = value.replaceFirst(
+      RegExp(r'^Bearer\s+', caseSensitive: false),
+      '',
+    );
+    value = value.replaceFirst(
+      RegExp(r'^xi-api-key\s*:\s*', caseSensitive: false),
+      '',
+    );
+    return value.trim();
+  }
+
+  String _extractErrorMessage(String responseBody) {
+    try {
+      final decoded = jsonDecode(responseBody);
+      if (decoded is Map<String, dynamic>) {
+        final detail = decoded['detail'];
+        if (detail is String && detail.trim().isNotEmpty) {
+          return detail.trim();
+        }
+        if (detail is Map<String, dynamic>) {
+          final message = detail['message']?.toString().trim() ?? '';
+          if (message.isNotEmpty) return message;
+        }
+      }
+    } catch (_) {
+      final text = responseBody.trim();
+      if (text.isNotEmpty) return text;
+    }
+    return 'Unknown error';
   }
 
   Future<File> _uncachedAudioFile() async {

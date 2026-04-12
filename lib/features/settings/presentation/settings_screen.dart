@@ -180,6 +180,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         decoration: InputDecoration(
                           labelText: 'API Key',
                           hintText: _apiKeyHint(_cloudProvider),
+                          helperText: _apiKeyHelperText(_cloudProvider),
                         ),
                         obscureText: true,
                       ),
@@ -592,6 +593,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return switch (provider) {
       CloudTtsProvider.openai => 'sk-...',
       CloudTtsProvider.elevenlabs => 'xi-api-key',
+    };
+  }
+
+  String? _apiKeyHelperText(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => null,
+      CloudTtsProvider.elevenlabs => '支持直接粘贴纯 key，或带 xi-api-key: 前缀的整段内容。',
     };
   }
 
