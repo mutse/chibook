@@ -25,10 +25,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   double _speed = 1.0;
   double _localSpeechRate = 0.45;
   String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
+  String _selectedEdgeVoice = ReaderSpeechService.edgePreviewVoices.first;
   String _localVoiceId = '';
-  List<CloudVoiceOption> _elevenLabsVoices = const [];
-  bool _loadingElevenLabsVoices = false;
-  String? _elevenLabsVoicesError;
+  List<CloudVoiceOption> _edgeVoices = const [];
+  bool _loadingEdgeVoices = false;
+  String? _edgeVoicesError;
   bool _initialized = false;
 
   @override
@@ -151,7 +152,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         decoration: const InputDecoration(
                           labelText: '云端提供商',
                         ),
-                        items: CloudTtsProvider.values
+                        items: _uiCloudProviders
                             .map(
                               (provider) => DropdownMenuItem<CloudTtsProvider>(
                                 value: provider,
@@ -166,6 +167,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           });
                         },
                       ),
+                      if (_cloudProvider == CloudTtsProvider.microsoftEdge) ...[
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Microsoft Edge Read Aloud 当前无需 API Key。',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                      if (_cloudProvider == CloudTtsProvider.openai) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _apiKeyController,
+                          decoration: InputDecoration(
+                            labelText: 'API Key',
+                            hintText: _apiKeyHint(_cloudProvider),
+                            helperText: _apiKeyHelperText(_cloudProvider),
+                          ),
+                          obscureText: true,
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       TextField(
                         controller: _endpointController,
@@ -176,50 +199,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const SizedBox(height: 12),
                       TextField(
-                        controller: _apiKeyController,
-                        decoration: InputDecoration(
-                          labelText: 'API Key',
-                          hintText: _apiKeyHint(_cloudProvider),
-                          helperText: _apiKeyHelperText(_cloudProvider),
-                        ),
-                        obscureText: true,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
                         controller: _modelController,
                         decoration: InputDecoration(
                           labelText: _modelLabel(_cloudProvider),
                           hintText: _modelHint(_cloudProvider),
                         ),
                       ),
-                      if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue:
-                              ReaderSpeechService.elevenLabsModels.contains(
-                            _modelController.text.trim(),
-                          )
-                                  ? _modelController.text.trim()
-                                  : null,
-                          decoration: const InputDecoration(
-                            labelText: '常用 ElevenLabs Model',
-                          ),
-                          items: ReaderSpeechService.elevenLabsModels
-                              .map(
-                                (model) => DropdownMenuItem<String>(
-                                  value: model,
-                                  child: Text(model),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              _modelController.text = value;
-                            });
-                          },
-                        ),
-                      ],
                       if (_cloudProvider == CloudTtsProvider.openai) ...[
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
@@ -249,25 +234,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           },
                         ),
                       ],
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _voiceController,
-                        decoration: InputDecoration(
-                          labelText: _voiceLabel(_cloudProvider),
-                          hintText: _voiceHint(_cloudProvider),
-                          helperText: _voiceHelperText(_cloudProvider),
+                      if (_cloudProvider == CloudTtsProvider.microsoftEdge) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue:
+                              ReaderSpeechService.edgePreviewVoices.contains(
+                            _selectedEdgeVoice,
+                          )
+                                  ? _selectedEdgeVoice
+                                  : null,
+                          decoration: const InputDecoration(
+                            labelText: '常用 Microsoft Edge 声音',
+                          ),
+                          items: ReaderSpeechService.edgePreviewVoices
+                              .map(
+                                (voice) => DropdownMenuItem<String>(
+                                  value: voice,
+                                  child: Text(voice),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              _selectedEdgeVoice = value;
+                              _voiceController.text = value;
+                            });
+                          },
                         ),
-                      ),
-                      if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
                         const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: _loadingElevenLabsVoices
-                                    ? null
-                                    : _loadElevenLabsVoices,
-                                icon: _loadingElevenLabsVoices
+                                onPressed:
+                                    _loadingEdgeVoices ? null : _loadEdgeVoices,
+                                icon: _loadingEdgeVoices
                                     ? const SizedBox(
                                         width: 16,
                                         height: 16,
@@ -277,42 +279,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       )
                                     : const Icon(Icons.cloud_download_outlined),
                                 label: Text(
-                                  _elevenLabsVoices.isEmpty
-                                      ? '加载 ElevenLabs Voices'
-                                      : '刷新 ElevenLabs Voices',
+                                  _edgeVoices.isEmpty
+                                      ? '加载 Microsoft Edge Voices'
+                                      : '刷新 Microsoft Edge Voices',
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        if (_elevenLabsVoicesError != null) ...[
+                        if (_edgeVoicesError != null) ...[
                           const SizedBox(height: 8),
                           Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              _elevenLabsVoicesError!,
+                              _edgeVoicesError!,
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(
-                                      color:
-                                          Theme.of(context).colorScheme.error),
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
                             ),
                           ),
                         ],
-                        if (_elevenLabsVoices.isNotEmpty) ...[
+                        if (_edgeVoices.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
-                            initialValue: _elevenLabsVoices.any(
+                            initialValue: _edgeVoices.any(
                               (voice) =>
                                   voice.id == _voiceController.text.trim(),
                             )
                                 ? _voiceController.text.trim()
                                 : null,
                             decoration: const InputDecoration(
-                              labelText: '选择 ElevenLabs Voice',
+                              labelText: '选择 Microsoft Edge Voice',
                             ),
-                            items: _elevenLabsVoices
+                            items: _edgeVoices
                                 .map(
                                   (voice) => DropdownMenuItem<String>(
                                     value: voice.id,
@@ -327,12 +329,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             onChanged: (value) {
                               if (value == null) return;
                               setState(() {
+                                _selectedEdgeVoice = value;
                                 _voiceController.text = value;
                               });
                             },
                           ),
                         ],
                       ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _voiceController,
+                        decoration: InputDecoration(
+                          labelText: _voiceLabel(_cloudProvider),
+                          hintText: _voiceHint(_cloudProvider),
+                          helperText: _voiceHelperText(_cloudProvider),
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         '云端语速 ${_speed.toStringAsFixed(2)}x',
@@ -493,17 +505,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _applySettings(SpeechSettings settings) {
+    final isHiddenProvider =
+        settings.cloudProvider == CloudTtsProvider.elevenlabs;
+    final effectiveProvider =
+        isHiddenProvider ? CloudTtsProvider.openai : settings.cloudProvider;
+    final effectiveVoice = settings.voice.isEmpty
+        ? SpeechSettings.defaultVoiceFor(effectiveProvider)
+        : settings.voice;
+
     _initialized = true;
     _providerMode = settings.providerMode;
-    _cloudProvider = settings.cloudProvider;
-    _endpointController.text = settings.endpoint;
-    _apiKeyController.text = settings.apiKey;
-    _modelController.text = settings.model;
-    _voiceController.text = settings.voice;
+    _cloudProvider = effectiveProvider;
+    _endpointController.text = isHiddenProvider
+        ? SpeechSettings.defaultEndpointFor(effectiveProvider)
+        : settings.endpoint;
+    _apiKeyController.text = isHiddenProvider ? '' : settings.apiKey;
+    _modelController.text = isHiddenProvider
+        ? SpeechSettings.defaultModelFor(effectiveProvider)
+        : settings.model;
+    _voiceController.text = isHiddenProvider ? effectiveVoice : settings.voice;
     _selectedOpenAiVoice =
-        ReaderSpeechService.openAiVoices.contains(settings.voice)
-            ? settings.voice
+        ReaderSpeechService.openAiVoices.contains(_voiceController.text)
+            ? _voiceController.text
             : ReaderSpeechService.openAiVoices.first;
+    _selectedEdgeVoice = _voiceController.text.trim().isEmpty
+        ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
+        : _voiceController.text.trim();
     _localVoiceId = settings.localVoiceId;
     _speed = settings.speed;
     _localSpeechRate = settings.localSpeechRate;
@@ -516,11 +543,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       providerMode: _providerMode,
       cloudProvider: _cloudProvider,
       endpoint: _endpointController.text.trim(),
-      apiKey: _apiKeyController.text.trim(),
+      apiKey: _cloudProvider == CloudTtsProvider.microsoftEdge
+          ? ''
+          : _apiKeyController.text.trim(),
       model: _modelController.text.trim(),
       voice: _cloudProvider == CloudTtsProvider.openai
           ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
-          : voice,
+          : _cloudProvider == CloudTtsProvider.microsoftEdge
+              ? (voice.isEmpty ? _selectedEdgeVoice : voice)
+              : voice,
       localVoiceId: _localVoiceId,
       speed: _speed,
       localSpeechRate: _localSpeechRate,
@@ -535,48 +566,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     };
   }
 
+  List<CloudTtsProvider> get _uiCloudProviders => const [
+        CloudTtsProvider.openai,
+        CloudTtsProvider.microsoftEdge,
+      ];
+
   String _modeDescription(SpeechProviderMode mode) {
     return switch (mode) {
       SpeechProviderMode.auto => '优先请求当前云端 TTS，失败后回退到设备自带 TTS',
       SpeechProviderMode.cloud => '只使用当前云端语音，便于验证音色与配置',
-      SpeechProviderMode.local => '完全离线，适合未配置 API Key 的场景',
+      SpeechProviderMode.local => '完全离线，适合未配置云端服务的场景',
     };
-  }
-
-  void _applyCloudProviderPreset(
-    CloudTtsProvider nextProvider, {
-    bool force = false,
-  }) {
-    final previousProvider = _cloudProvider;
-    _cloudProvider = nextProvider;
-    _selectedOpenAiVoice = SpeechSettings.defaultVoiceFor(
-      CloudTtsProvider.openai,
-    );
-
-    if (force ||
-        _endpointController.text.trim().isEmpty ||
-        _endpointController.text.trim() ==
-            SpeechSettings.defaultEndpointFor(previousProvider)) {
-      _endpointController.text =
-          SpeechSettings.defaultEndpointFor(nextProvider);
-    }
-    if (force ||
-        _modelController.text.trim().isEmpty ||
-        _modelController.text.trim() ==
-            SpeechSettings.defaultModelFor(previousProvider)) {
-      _modelController.text = SpeechSettings.defaultModelFor(nextProvider);
-    }
-    if (force ||
-        _voiceController.text.trim().isEmpty ||
-        _voiceController.text.trim() ==
-            SpeechSettings.defaultVoiceFor(previousProvider)) {
-      _voiceController.text = SpeechSettings.defaultVoiceFor(nextProvider);
-    }
   }
 
   String _cloudProviderLabel(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'OpenAI',
+      CloudTtsProvider.microsoftEdge => 'Microsoft Edge',
       CloudTtsProvider.elevenlabs => 'ElevenLabs',
     };
   }
@@ -584,6 +590,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _endpointHint(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'https://api.openai.com/v1/audio/speech',
+      CloudTtsProvider.microsoftEdge =>
+        'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
       CloudTtsProvider.elevenlabs =>
         'https://api.elevenlabs.io/v1/text-to-speech',
     };
@@ -592,6 +600,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _apiKeyHint(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'sk-...',
+      CloudTtsProvider.microsoftEdge => '',
       CloudTtsProvider.elevenlabs => 'xi-api-key',
     };
   }
@@ -599,6 +608,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _apiKeyHelperText(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => null,
+      CloudTtsProvider.microsoftEdge => 'Microsoft Edge 不需要 API Key。',
       CloudTtsProvider.elevenlabs => '支持直接粘贴纯 key，或带 xi-api-key: 前缀的整段内容。',
     };
   }
@@ -606,6 +616,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _modelLabel(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'Model',
+      CloudTtsProvider.microsoftEdge => 'Output Format',
       CloudTtsProvider.elevenlabs => 'Model ID',
     };
   }
@@ -617,6 +628,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _voiceLabel(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => '自定义 OpenAI Voice（可选）',
+      CloudTtsProvider.microsoftEdge => 'Microsoft Edge Voice',
       CloudTtsProvider.elevenlabs => 'ElevenLabs Voice ID',
     };
   }
@@ -624,6 +636,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _voiceHint(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => '例如: alloy',
+      CloudTtsProvider.microsoftEdge => '例如: zh-CN-XiaoxiaoNeural',
       CloudTtsProvider.elevenlabs => '例如: EXAVITQu4vr4xnSDxMaL',
     };
   }
@@ -631,46 +644,71 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _voiceHelperText(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => null,
+      CloudTtsProvider.microsoftEdge =>
+        '可填写完整 Voice 名称，例如 zh-CN-XiaoxiaoNeural。',
       CloudTtsProvider.elevenlabs =>
         '可填写 Voice ID，Endpoint 也支持使用 {voice_id} 占位符。',
     };
   }
 
-  Future<void> _loadElevenLabsVoices() async {
-    final apiKey = _apiKeyController.text.trim();
-    if (apiKey.isEmpty) {
-      setState(() {
-        _elevenLabsVoicesError = '请先填写 ElevenLabs API Key。';
-        _elevenLabsVoices = const [];
-      });
-      return;
-    }
+  void _applyCloudProviderPreset(CloudTtsProvider nextProvider) {
+    final previousProvider = _cloudProvider;
+    _cloudProvider = nextProvider;
 
+    if (_endpointController.text.trim().isEmpty ||
+        _endpointController.text.trim() ==
+            SpeechSettings.defaultEndpointFor(previousProvider)) {
+      _endpointController.text =
+          SpeechSettings.defaultEndpointFor(nextProvider);
+    }
+    if (_modelController.text.trim().isEmpty ||
+        _modelController.text.trim() ==
+            SpeechSettings.defaultModelFor(previousProvider)) {
+      _modelController.text = SpeechSettings.defaultModelFor(nextProvider);
+    }
+    if (_voiceController.text.trim().isEmpty ||
+        _voiceController.text.trim() ==
+            SpeechSettings.defaultVoiceFor(previousProvider)) {
+      _voiceController.text = SpeechSettings.defaultVoiceFor(nextProvider);
+    }
+    if (nextProvider == CloudTtsProvider.openai) {
+      _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.contains(
+        _voiceController.text.trim(),
+      )
+          ? _voiceController.text.trim()
+          : ReaderSpeechService.openAiVoices.first;
+    }
+    if (nextProvider == CloudTtsProvider.microsoftEdge) {
+      _selectedEdgeVoice = _voiceController.text.trim().isEmpty
+          ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
+          : _voiceController.text.trim();
+    }
+  }
+
+  Future<void> _loadEdgeVoices() async {
     setState(() {
-      _loadingElevenLabsVoices = true;
-      _elevenLabsVoicesError = null;
+      _loadingEdgeVoices = true;
+      _edgeVoicesError = null;
     });
 
     try {
-      final voices =
-          await ref.read(readerSpeechServiceProvider).listElevenLabsVoices(
-                apiKey: apiKey,
-                endpoint: _endpointController.text.trim(),
-              );
+      final voices = await ref.read(readerSpeechServiceProvider).listEdgeVoices(
+            endpoint: _endpointController.text.trim(),
+          );
       if (!mounted) return;
       setState(() {
-        _elevenLabsVoices = voices;
+        _edgeVoices = voices;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _elevenLabsVoices = const [];
-        _elevenLabsVoicesError = '加载 ElevenLabs voices 失败: $error';
+        _edgeVoices = const [];
+        _edgeVoicesError = '加载 Microsoft Edge voices 失败: $error';
       });
     } finally {
       if (mounted) {
         setState(() {
-          _loadingElevenLabsVoices = false;
+          _loadingEdgeVoices = false;
         });
       }
     }
