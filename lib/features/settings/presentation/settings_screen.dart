@@ -21,10 +21,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _voiceController;
   late final TextEditingController _sampleController;
   SpeechProviderMode _providerMode = SpeechProviderMode.auto;
+  CloudTtsProvider _cloudProvider = CloudTtsProvider.openai;
   double _speed = 1.0;
   double _localSpeechRate = 0.45;
   String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
   String _localVoiceId = '';
+  List<CloudVoiceOption> _elevenLabsVoices = const [];
+  bool _loadingElevenLabsVoices = false;
+  String? _elevenLabsVoicesError;
   bool _initialized = false;
 
   @override
@@ -35,7 +39,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _modelController = TextEditingController();
     _voiceController = TextEditingController();
     _sampleController = TextEditingController(
-      text: '这是 Chibook 的 OpenAI TTS 测试语音。',
+      text: '这是 Chibook 的 AI TTS 测试语音。',
     );
   }
 
@@ -87,7 +91,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '管理语音朗读、OpenAI TTS 和试听参数。',
+                    '管理语音朗读、云端 TTS 和试听参数。',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: const Color(0xFF5D645F),
                         ),
@@ -139,67 +143,196 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const SizedBox(height: 16),
                 _SectionCard(
-                  title: 'OpenAI TTS 配置',
+                  title: '云端 TTS 配置',
                   child: Column(
                     children: [
-                      TextField(
-                        controller: _endpointController,
+                      DropdownButtonFormField<CloudTtsProvider>(
+                        initialValue: _cloudProvider,
                         decoration: const InputDecoration(
-                          labelText: 'Endpoint',
-                          hintText: 'https://api.openai.com/v1/audio/speech',
+                          labelText: '云端提供商',
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _apiKeyController,
-                        decoration: const InputDecoration(
-                          labelText: 'API Key',
-                          hintText: 'sk-...',
-                        ),
-                        obscureText: true,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _modelController,
-                        decoration: const InputDecoration(
-                          labelText: 'Model',
-                          hintText: 'gpt-4o-mini-tts',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: ReaderSpeechService.openAiVoices.contains(
-                          _selectedOpenAiVoice,
-                        )
-                            ? _selectedOpenAiVoice
-                            : null,
-                        decoration: const InputDecoration(
-                          labelText: 'OpenAI 声音',
-                        ),
-                        items: ReaderSpeechService.openAiVoices
+                        items: CloudTtsProvider.values
                             .map(
-                              (voice) => DropdownMenuItem<String>(
-                                value: voice,
-                                child: Text(voice),
+                              (provider) => DropdownMenuItem<CloudTtsProvider>(
+                                value: provider,
+                                child: Text(_cloudProviderLabel(provider)),
                               ),
                             )
                             .toList(),
                         onChanged: (value) {
                           if (value == null) return;
                           setState(() {
-                            _selectedOpenAiVoice = value;
-                            _voiceController.text = value;
+                            _applyCloudProviderPreset(value);
                           });
                         },
                       ),
                       const SizedBox(height: 12),
                       TextField(
-                        controller: _voiceController,
-                        decoration: const InputDecoration(
-                          labelText: '自定义 OpenAI Voice（可选）',
-                          hintText: '例如: alloy',
+                        controller: _endpointController,
+                        decoration: InputDecoration(
+                          labelText: 'Endpoint',
+                          hintText: _endpointHint(_cloudProvider),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _apiKeyController,
+                        decoration: InputDecoration(
+                          labelText: 'API Key',
+                          hintText: _apiKeyHint(_cloudProvider),
+                          helperText: _apiKeyHelperText(_cloudProvider),
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _modelController,
+                        decoration: InputDecoration(
+                          labelText: _modelLabel(_cloudProvider),
+                          hintText: _modelHint(_cloudProvider),
+                        ),
+                      ),
+                      if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue:
+                              ReaderSpeechService.elevenLabsModels.contains(
+                            _modelController.text.trim(),
+                          )
+                                  ? _modelController.text.trim()
+                                  : null,
+                          decoration: const InputDecoration(
+                            labelText: '常用 ElevenLabs Model',
+                          ),
+                          items: ReaderSpeechService.elevenLabsModels
+                              .map(
+                                (model) => DropdownMenuItem<String>(
+                                  value: model,
+                                  child: Text(model),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              _modelController.text = value;
+                            });
+                          },
+                        ),
+                      ],
+                      if (_cloudProvider == CloudTtsProvider.openai) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue:
+                              ReaderSpeechService.openAiVoices.contains(
+                            _selectedOpenAiVoice,
+                          )
+                                  ? _selectedOpenAiVoice
+                                  : null,
+                          decoration: const InputDecoration(
+                            labelText: 'OpenAI 声音',
+                          ),
+                          items: ReaderSpeechService.openAiVoices
+                              .map(
+                                (voice) => DropdownMenuItem<String>(
+                                  value: voice,
+                                  child: Text(voice),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              _selectedOpenAiVoice = value;
+                              _voiceController.text = value;
+                            });
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _voiceController,
+                        decoration: InputDecoration(
+                          labelText: _voiceLabel(_cloudProvider),
+                          hintText: _voiceHint(_cloudProvider),
+                          helperText: _voiceHelperText(_cloudProvider),
+                        ),
+                      ),
+                      if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _loadingElevenLabsVoices
+                                    ? null
+                                    : _loadElevenLabsVoices,
+                                icon: _loadingElevenLabsVoices
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.cloud_download_outlined),
+                                label: Text(
+                                  _elevenLabsVoices.isEmpty
+                                      ? '加载 ElevenLabs Voices'
+                                      : '刷新 ElevenLabs Voices',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_elevenLabsVoicesError != null) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _elevenLabsVoicesError!,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.error),
+                            ),
+                          ),
+                        ],
+                        if (_elevenLabsVoices.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: _elevenLabsVoices.any(
+                              (voice) =>
+                                  voice.id == _voiceController.text.trim(),
+                            )
+                                ? _voiceController.text.trim()
+                                : null,
+                            decoration: const InputDecoration(
+                              labelText: '选择 ElevenLabs Voice',
+                            ),
+                            items: _elevenLabsVoices
+                                .map(
+                                  (voice) => DropdownMenuItem<String>(
+                                    value: voice.id,
+                                    child: Text(
+                                      voice.label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value == null) return;
+                              setState(() {
+                                _voiceController.text = value;
+                              });
+                            },
+                          ),
+                        ],
+                      ],
                       const SizedBox(height: 16),
                       Text(
                         '云端语速 ${_speed.toStringAsFixed(2)}x',
@@ -362,6 +495,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _applySettings(SpeechSettings settings) {
     _initialized = true;
     _providerMode = settings.providerMode;
+    _cloudProvider = settings.cloudProvider;
     _endpointController.text = settings.endpoint;
     _apiKeyController.text = settings.apiKey;
     _modelController.text = settings.model;
@@ -377,12 +511,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   SpeechSettings _buildSettings() {
+    final voice = _voiceController.text.trim();
     return SpeechSettings(
       providerMode: _providerMode,
+      cloudProvider: _cloudProvider,
       endpoint: _endpointController.text.trim(),
       apiKey: _apiKeyController.text.trim(),
       model: _modelController.text.trim(),
-      voice: _voiceController.text.trim(),
+      voice: _cloudProvider == CloudTtsProvider.openai
+          ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
+          : voice,
       localVoiceId: _localVoiceId,
       speed: _speed,
       localSpeechRate: _localSpeechRate,
@@ -392,17 +530,150 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _modeLabel(SpeechProviderMode mode) {
     return switch (mode) {
       SpeechProviderMode.auto => '自动回退',
-      SpeechProviderMode.openai => '仅 OpenAI',
+      SpeechProviderMode.cloud => '仅云端 TTS',
       SpeechProviderMode.local => '仅本地 TTS',
     };
   }
 
   String _modeDescription(SpeechProviderMode mode) {
     return switch (mode) {
-      SpeechProviderMode.auto => '优先请求 OpenAI，失败后回退到设备自带 TTS',
-      SpeechProviderMode.openai => '只使用云端语音，便于验证音色与配置',
+      SpeechProviderMode.auto => '优先请求当前云端 TTS，失败后回退到设备自带 TTS',
+      SpeechProviderMode.cloud => '只使用当前云端语音，便于验证音色与配置',
       SpeechProviderMode.local => '完全离线，适合未配置 API Key 的场景',
     };
+  }
+
+  void _applyCloudProviderPreset(
+    CloudTtsProvider nextProvider, {
+    bool force = false,
+  }) {
+    final previousProvider = _cloudProvider;
+    _cloudProvider = nextProvider;
+    _selectedOpenAiVoice = SpeechSettings.defaultVoiceFor(
+      CloudTtsProvider.openai,
+    );
+
+    if (force ||
+        _endpointController.text.trim().isEmpty ||
+        _endpointController.text.trim() ==
+            SpeechSettings.defaultEndpointFor(previousProvider)) {
+      _endpointController.text =
+          SpeechSettings.defaultEndpointFor(nextProvider);
+    }
+    if (force ||
+        _modelController.text.trim().isEmpty ||
+        _modelController.text.trim() ==
+            SpeechSettings.defaultModelFor(previousProvider)) {
+      _modelController.text = SpeechSettings.defaultModelFor(nextProvider);
+    }
+    if (force ||
+        _voiceController.text.trim().isEmpty ||
+        _voiceController.text.trim() ==
+            SpeechSettings.defaultVoiceFor(previousProvider)) {
+      _voiceController.text = SpeechSettings.defaultVoiceFor(nextProvider);
+    }
+  }
+
+  String _cloudProviderLabel(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'OpenAI',
+      CloudTtsProvider.elevenlabs => 'ElevenLabs',
+    };
+  }
+
+  String _endpointHint(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'https://api.openai.com/v1/audio/speech',
+      CloudTtsProvider.elevenlabs =>
+        'https://api.elevenlabs.io/v1/text-to-speech',
+    };
+  }
+
+  String _apiKeyHint(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'sk-...',
+      CloudTtsProvider.elevenlabs => 'xi-api-key',
+    };
+  }
+
+  String? _apiKeyHelperText(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => null,
+      CloudTtsProvider.elevenlabs => '支持直接粘贴纯 key，或带 xi-api-key: 前缀的整段内容。',
+    };
+  }
+
+  String _modelLabel(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => 'Model',
+      CloudTtsProvider.elevenlabs => 'Model ID',
+    };
+  }
+
+  String _modelHint(CloudTtsProvider provider) {
+    return SpeechSettings.defaultModelFor(provider);
+  }
+
+  String _voiceLabel(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => '自定义 OpenAI Voice（可选）',
+      CloudTtsProvider.elevenlabs => 'ElevenLabs Voice ID',
+    };
+  }
+
+  String _voiceHint(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => '例如: alloy',
+      CloudTtsProvider.elevenlabs => '例如: EXAVITQu4vr4xnSDxMaL',
+    };
+  }
+
+  String? _voiceHelperText(CloudTtsProvider provider) {
+    return switch (provider) {
+      CloudTtsProvider.openai => null,
+      CloudTtsProvider.elevenlabs =>
+        '可填写 Voice ID，Endpoint 也支持使用 {voice_id} 占位符。',
+    };
+  }
+
+  Future<void> _loadElevenLabsVoices() async {
+    final apiKey = _apiKeyController.text.trim();
+    if (apiKey.isEmpty) {
+      setState(() {
+        _elevenLabsVoicesError = '请先填写 ElevenLabs API Key。';
+        _elevenLabsVoices = const [];
+      });
+      return;
+    }
+
+    setState(() {
+      _loadingElevenLabsVoices = true;
+      _elevenLabsVoicesError = null;
+    });
+
+    try {
+      final voices =
+          await ref.read(readerSpeechServiceProvider).listElevenLabsVoices(
+                apiKey: apiKey,
+                endpoint: _endpointController.text.trim(),
+              );
+      if (!mounted) return;
+      setState(() {
+        _elevenLabsVoices = voices;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _elevenLabsVoices = const [];
+        _elevenLabsVoicesError = '加载 ElevenLabs voices 失败: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingElevenLabsVoices = false;
+        });
+      }
+    }
   }
 }
 

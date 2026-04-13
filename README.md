@@ -18,7 +18,7 @@ A cross-platform Android/iOS reading app inspired by WeRead, built with Flutter.
 - Sqflite for local metadata storage
 - File Picker for book import
 - Flutter TTS for on-device speech fallback
-- OpenAI-compatible TTS endpoint adapter for cloud AI narration
+- OpenAI and ElevenLabs cloud TTS adapter for AI narration
 
 ## Project status
 
