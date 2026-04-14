@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -24,6 +25,7 @@ class ReaderSpeechService {
   final FlutterTts _flutterTts;
   final http.Client _client;
   final AudioPlayer _audioPlayer;
+  final Random _random = Random.secure();
 
   static const List<String> openAiVoices = [
     'alloy',
@@ -74,9 +76,7 @@ class ReaderSpeechService {
         return;
       }
       if (config.providerMode == SpeechProviderMode.cloud) {
-        throw Exception(
-          '${config.cloudProviderLabel} TTS request failed. Please check your endpoint, voice and API key.',
-        );
+        throw Exception(_cloudFailureMessage(config));
       }
     }
     await _speakLocally(text);
@@ -106,9 +106,7 @@ class ReaderSpeechService {
         return;
       }
       if (config.providerMode == SpeechProviderMode.cloud) {
-        throw Exception(
-          '${config.cloudProviderLabel} TTS request failed. Please check your endpoint, voice and API key.',
-        );
+        throw Exception(_cloudFailureMessage(config));
       }
     }
     await _speakLocally(text);
@@ -508,17 +506,24 @@ class ReaderSpeechService {
     String text,
     SpeechConfig config,
   ) async {
-    final endpoint = _edgeWebSocketUri(config.endpoint);
-    final requestId = _edgeConnectionId();
+    final connectionId = _edgeRequestId();
+    final endpoint = _edgeWebSocketUri(
+      config.endpoint,
+      connectionId: connectionId,
+    );
+    final requestId = _edgeRequestId();
     final audio = BytesBuilder(copy: false);
+    final muid = _edgeMuid();
 
     final socket = await WebSocket.connect(
       endpoint.toString(),
       headers: {
         'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
         'User-Agent': _edgeUserAgent,
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache',
+        'Cookie': 'MUID=$muid; MUIDB=$muid',
       },
     );
 
@@ -590,7 +595,10 @@ class ReaderSpeechService {
     );
   }
 
-  Uri _edgeWebSocketUri(String endpoint) {
+  Uri _edgeWebSocketUri(
+    String endpoint, {
+    required String connectionId,
+  }) {
     final baseEndpoint = endpoint.trim().isEmpty
         ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge)
         : endpoint.trim();
@@ -601,7 +609,7 @@ class ReaderSpeechService {
       path: '/consumer/speech/synthesize/readaloud/edge/v1',
       queryParameters: {
         'TrustedClientToken': _edgeTrustedClientToken,
-        'ConnectionId': _edgeConnectionId(),
+        'ConnectionId': connectionId,
         'Sec-MS-GEC': _generateEdgeSecMsGec(),
         'Sec-MS-GEC-Version': _edgeSecMsGecVersion,
       },
@@ -729,8 +737,9 @@ class ReaderSpeechService {
     return '${delta >= 0 ? '+' : ''}$delta%';
   }
 
-  String _edgeConnectionId() =>
-      DateTime.now().microsecondsSinceEpoch.toRadixString(16);
+  String _edgeRequestId() => _randomHex(32).toLowerCase();
+
+  String _edgeMuid() => _randomHex(32);
 
   String _edgeTimestamp() => _edgeDateHeader();
 
@@ -772,6 +781,15 @@ class ReaderSpeechService {
     return digest.toString().toUpperCase();
   }
 
+  String _randomHex(int length) {
+    const digits = '0123456789ABCDEF';
+    final buffer = StringBuffer();
+    for (var index = 0; index < length; index++) {
+      buffer.write(digits[_random.nextInt(digits.length)]);
+    }
+    return buffer.toString();
+  }
+
   Uint8List _outputOrEmpty(BytesBuilder builder) {
     final bytes = builder.takeBytes();
     return bytes.isEmpty ? Uint8List(0) : Uint8List.fromList(bytes);
@@ -811,6 +829,17 @@ class ReaderSpeechService {
       if (text.isNotEmpty) return text;
     }
     return 'Unknown error';
+  }
+
+  String _cloudFailureMessage(SpeechConfig config) {
+    return switch (config.cloudProvider) {
+      CloudTtsProvider.openai =>
+        'OpenAI TTS request failed. Please check your endpoint, voice and API key.',
+      CloudTtsProvider.microsoftEdge =>
+        'Microsoft Edge TTS request failed. Please check your endpoint and voice.',
+      CloudTtsProvider.elevenlabs =>
+        'ElevenLabs TTS request failed. Please check your endpoint, voice and API key.',
+    };
   }
 
   Future<File> _uncachedAudioFile() async {

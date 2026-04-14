@@ -652,25 +652,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _applyCloudProviderPreset(CloudTtsProvider nextProvider) {
-    final previousProvider = _cloudProvider;
     _cloudProvider = nextProvider;
-
-    if (_endpointController.text.trim().isEmpty ||
-        _endpointController.text.trim() ==
-            SpeechSettings.defaultEndpointFor(previousProvider)) {
-      _endpointController.text =
-          SpeechSettings.defaultEndpointFor(nextProvider);
-    }
-    if (_modelController.text.trim().isEmpty ||
-        _modelController.text.trim() ==
-            SpeechSettings.defaultModelFor(previousProvider)) {
-      _modelController.text = SpeechSettings.defaultModelFor(nextProvider);
-    }
-    if (_voiceController.text.trim().isEmpty ||
-        _voiceController.text.trim() ==
-            SpeechSettings.defaultVoiceFor(previousProvider)) {
-      _voiceController.text = SpeechSettings.defaultVoiceFor(nextProvider);
-    }
+    _endpointController.text = SpeechSettings.defaultEndpointFor(nextProvider);
+    _modelController.text = SpeechSettings.defaultModelFor(nextProvider);
+    _voiceController.text = SpeechSettings.defaultVoiceFor(nextProvider);
     if (nextProvider == CloudTtsProvider.openai) {
       _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.contains(
         _voiceController.text.trim(),
