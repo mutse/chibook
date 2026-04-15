@@ -82,6 +82,24 @@ class SpeechSettings {
     };
   }
 
+  static String normalizeEndpointFor(
+    CloudTtsProvider provider,
+    String endpoint,
+  ) {
+    final trimmed = endpoint.trim();
+    if (trimmed.isEmpty) {
+      return defaultEndpointFor(provider);
+    }
+
+    return switch (provider) {
+      CloudTtsProvider.microsoftEdge
+          when trimmed ==
+              'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1' =>
+        defaultEndpointFor(provider),
+      _ => trimmed,
+    };
+  }
+
   static String defaultModelFor(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'gpt-4o-mini-tts',

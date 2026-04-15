@@ -39,17 +39,21 @@ class SpeechSettingsService {
       SpeechSettingsStorageKeys.cloudProvider,
       SpeechSettingsStorageKeys.legacyCloudProvider,
     );
+    final providerMode = _parseMode(providerName) ?? defaults.providerMode;
+    final cloudProvider =
+        _parseCloudProvider(cloudProviderName) ?? defaults.cloudProvider;
+    final rawEndpoint = _readString(
+      prefs,
+      SpeechSettingsStorageKeys.endpoint,
+      SpeechSettingsStorageKeys.legacyEndpoint,
+    );
 
     return defaults.copyWith(
-      providerMode: _parseMode(providerName) ?? defaults.providerMode,
-      cloudProvider:
-          _parseCloudProvider(cloudProviderName) ?? defaults.cloudProvider,
-      endpoint: _readString(
-            prefs,
-            SpeechSettingsStorageKeys.endpoint,
-            SpeechSettingsStorageKeys.legacyEndpoint,
-          ) ??
-          defaults.endpoint,
+      providerMode: providerMode,
+      cloudProvider: cloudProvider,
+      endpoint: rawEndpoint == null
+          ? defaults.endpoint
+          : SpeechSettings.normalizeEndpointFor(cloudProvider, rawEndpoint),
       apiKey: _readString(
             prefs,
             SpeechSettingsStorageKeys.apiKey,
@@ -100,7 +104,12 @@ class SpeechSettingsService {
       settings.cloudProvider.name,
     );
     await prefs.setString(
-        SpeechSettingsStorageKeys.endpoint, settings.endpoint);
+      SpeechSettingsStorageKeys.endpoint,
+      SpeechSettings.normalizeEndpointFor(
+        settings.cloudProvider,
+        settings.endpoint,
+      ),
+    );
     await prefs.setString(SpeechSettingsStorageKeys.apiKey, settings.apiKey);
     await prefs.setString(SpeechSettingsStorageKeys.model, settings.model);
     await prefs.setString(SpeechSettingsStorageKeys.voice, settings.voice);

@@ -172,7 +172,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'Microsoft Edge Read Aloud 当前无需 API Key。',
+                            'Microsoft Edge 直接调用 Edge 浏览器 Read Aloud 背后的在线语音服务，无须配置 API Key。',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),
@@ -518,7 +518,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _cloudProvider = effectiveProvider;
     _endpointController.text = isHiddenProvider
         ? SpeechSettings.defaultEndpointFor(effectiveProvider)
-        : settings.endpoint;
+        : SpeechSettings.normalizeEndpointFor(
+            effectiveProvider,
+            settings.endpoint,
+          );
     _apiKeyController.text = isHiddenProvider ? '' : settings.apiKey;
     _modelController.text = isHiddenProvider
         ? SpeechSettings.defaultModelFor(effectiveProvider)
@@ -542,10 +545,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return SpeechSettings(
       providerMode: _providerMode,
       cloudProvider: _cloudProvider,
-      endpoint: _endpointController.text.trim(),
-      apiKey: _cloudProvider == CloudTtsProvider.microsoftEdge
-          ? ''
-          : _apiKeyController.text.trim(),
+      endpoint: SpeechSettings.normalizeEndpointFor(
+        _cloudProvider,
+        _endpointController.text.trim(),
+      ),
+      apiKey: _apiKeyController.text.trim(),
       model: _modelController.text.trim(),
       voice: _cloudProvider == CloudTtsProvider.openai
           ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
@@ -608,7 +612,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _apiKeyHelperText(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => null,
-      CloudTtsProvider.microsoftEdge => 'Microsoft Edge 不需要 API Key。',
+      CloudTtsProvider.microsoftEdge => null,
       CloudTtsProvider.elevenlabs => '支持直接粘贴纯 key，或带 xi-api-key: 前缀的整段内容。',
     };
   }

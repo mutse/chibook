@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -10,8 +9,8 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
-import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 class ReaderSpeechService {
   ReaderSpeechService({
@@ -25,7 +24,11 @@ class ReaderSpeechService {
   final FlutterTts _flutterTts;
   final http.Client _client;
   final AudioPlayer _audioPlayer;
-  final Random _random = Random.secure();
+
+  static const _edgeTrustedClientToken = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+  static const _edgeOrigin =
+      'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold';
+  static const _uuid = Uuid();
 
   static const List<String> openAiVoices = [
     'alloy',
@@ -60,8 +63,6 @@ class ReaderSpeechService {
     'en-GB-SoniaNeural',
   ];
 
-  static const _edgeTrustedClientToken = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-  static const _edgeSecMsGecVersion = '1-143.0.3650.0';
   static const _edgeUserAgent =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 '
@@ -270,7 +271,7 @@ class ReaderSpeechService {
       _edgeVoicesUri(endpoint),
       headers: {
         'Accept': 'application/json',
-        'User-Agent': _edgeUserAgent,
+        ..._edgeRequestHeaders(),
       },
     );
 
@@ -341,7 +342,7 @@ class ReaderSpeechService {
       final audioBytes = switch (config.cloudProvider) {
         CloudTtsProvider.openai => await _postOpenAiSpeech(text, config),
         CloudTtsProvider.microsoftEdge =>
-          await _synthesizeMicrosoftEdgeSpeech(text, config),
+          await _postMicrosoftEdgeSpeech(text, config),
         CloudTtsProvider.elevenlabs =>
           await _postElevenLabsSpeech(text, config),
       };
@@ -374,9 +375,12 @@ class ReaderSpeechService {
     return SpeechConfig(
       providerMode: _parseMode(providerModeName),
       cloudProvider: cloudProvider,
-      endpoint: prefs.getString(SpeechSettingsStorageKeys.endpoint) ??
-          prefs.getString(SpeechSettingsStorageKeys.legacyEndpoint) ??
-          SpeechSettings.defaultEndpointFor(cloudProvider),
+      endpoint: SpeechSettings.normalizeEndpointFor(
+        cloudProvider,
+        prefs.getString(SpeechSettingsStorageKeys.endpoint) ??
+            prefs.getString(SpeechSettingsStorageKeys.legacyEndpoint) ??
+            '',
+      ),
       apiKey: prefs.getString(SpeechSettingsStorageKeys.apiKey) ??
           prefs.getString(SpeechSettingsStorageKeys.legacyApiKey) ??
           '',
@@ -485,91 +489,66 @@ class ReaderSpeechService {
     return Uint8List.fromList(response.bodyBytes);
   }
 
-  Future<Uint8List> _synthesizeMicrosoftEdgeSpeech(
+  Future<Uint8List> _postMicrosoftEdgeSpeech(
     String text,
     SpeechConfig config,
   ) async {
-    final chunks = _splitEdgeText(text);
-    final output = BytesBuilder(copy: false);
-
-    for (final chunk in chunks) {
-      final audio = await _synthesizeMicrosoftEdgeChunk(chunk, config);
-      if (audio.isNotEmpty) {
-        output.add(audio);
-      }
-    }
-
-    return output.takeBytes();
-  }
-
-  Future<Uint8List> _synthesizeMicrosoftEdgeChunk(
-    String text,
-    SpeechConfig config,
-  ) async {
-    final connectionId = _edgeRequestId();
-    final endpoint = _edgeWebSocketUri(
-      config.endpoint,
-      connectionId: connectionId,
-    );
-    final requestId = _edgeRequestId();
-    final audio = BytesBuilder(copy: false);
-    final muid = _edgeMuid();
-
     final socket = await WebSocket.connect(
-      endpoint.toString(),
+      _edgeWebSocketUri(
+        config.endpoint,
+        connectionId: _edgeConnectionId(),
+      ).toString(),
       headers: {
-        'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
-        'User-Agent': _edgeUserAgent,
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        ..._edgeRequestHeaders(),
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache',
-        'Cookie': 'MUID=$muid; MUIDB=$muid',
       },
+      compression: CompressionOptions.compressionOff,
     );
 
+    final outputFormat = config.model.trim().isEmpty
+        ? SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge)
+        : config.model.trim();
+    final voice = config.voice.trim().isEmpty
+        ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
+        : config.voice.trim();
+    final timestamp = _edgeTimestamp();
+    final audioBytes = <int>[];
+
     try {
-      socket.add(_edgeSpeechConfig(config.model));
       socket.add(
-        _edgeSsmlRequest(
-          requestId: requestId,
-          timestamp: _edgeTimestamp(),
-          voice: config.voice.trim().isEmpty
-              ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
-              : config.voice.trim(),
+        _edgeSpeechConfigMessage(
+          timestamp: timestamp,
+          outputFormat: outputFormat,
+        ),
+      );
+      socket.add(
+        _edgeSsmlRequestMessage(
+          requestId: _edgeRequestId(),
+          timestamp: timestamp,
+          voice: voice,
           rate: _edgeRate(config.speed),
           text: text,
         ),
       );
 
       await for (final message in socket) {
-        if (message is String) {
-          final headerEnd = message.indexOf('\r\n\r\n');
-          if (headerEnd == -1) continue;
-          final headers = _parseHeaderLines(message.substring(0, headerEnd));
-          if (headers['Path'] == 'turn.end') {
-            break;
-          }
-          continue;
+        if (message is String && message.contains('Path:turn.end')) {
+          break;
         }
 
         if (message is List<int>) {
-          final bytes = Uint8List.fromList(message);
-          if (bytes.length < 2) continue;
-          final headerLength = (bytes[0] << 8) | bytes[1];
-          if (headerLength >= bytes.length) continue;
-          final headerBytes = bytes.sublist(2, 2 + headerLength);
-          final body = bytes.sublist(2 + headerLength);
-          final headers = _parseHeaderLines(utf8.decode(headerBytes));
-          if (headers['Path'] == 'audio' && body.isNotEmpty) {
-            audio.add(body);
-          }
+          audioBytes.addAll(_edgeAudioBytes(message));
         }
       }
     } finally {
       await socket.close();
     }
 
-    return _outputOrEmpty(audio);
+    if (audioBytes.isEmpty) {
+      throw Exception('Microsoft Edge returned empty audio data.');
+    }
+    return Uint8List.fromList(audioBytes);
   }
 
   Uri _elevenLabsVoicesUri(String endpoint) {
@@ -581,15 +560,12 @@ class ReaderSpeechService {
   }
 
   Uri _edgeVoicesUri(String endpoint) {
-    final baseEndpoint = endpoint.trim().isEmpty
-        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge)
-        : endpoint.trim();
-    final uri =
-        Uri.parse(baseEndpoint.replaceFirst(RegExp(r'^wss:'), 'https:'));
+    final uri = _edgeBaseUri(endpoint);
     return uri.replace(
-      scheme: uri.scheme == 'wss' ? 'https' : uri.scheme,
-      path: '/consumer/speech/synthesize/readaloud/voices/list',
+      scheme: uri.scheme == 'ws' ? 'http' : 'https',
+      path: _edgeNormalizedPath(uri.path, synthesisPath: false),
       queryParameters: {
+        ..._edgeQueryParameters(uri.queryParameters),
         'trustedclienttoken': _edgeTrustedClientToken,
       },
     );
@@ -599,113 +575,31 @@ class ReaderSpeechService {
     String endpoint, {
     required String connectionId,
   }) {
-    final baseEndpoint = endpoint.trim().isEmpty
-        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge)
-        : endpoint.trim();
-    final uri = Uri.parse(baseEndpoint);
-    final normalizedScheme = uri.scheme == 'https' ? 'wss' : uri.scheme;
+    final uri = _edgeBaseUri(endpoint);
     return uri.replace(
-      scheme: normalizedScheme,
-      path: '/consumer/speech/synthesize/readaloud/edge/v1',
+      scheme: uri.scheme == 'http' ? 'ws' : 'wss',
+      path: _edgeNormalizedPath(uri.path, synthesisPath: true),
       queryParameters: {
+        ..._edgeQueryParameters(uri.queryParameters),
         'TrustedClientToken': _edgeTrustedClientToken,
         'ConnectionId': connectionId,
-        'Sec-MS-GEC': _generateEdgeSecMsGec(),
-        'Sec-MS-GEC-Version': _edgeSecMsGecVersion,
       },
     );
   }
 
-  String _edgeSpeechConfig(String outputFormat) {
-    return 'X-Timestamp:${_edgeDateHeader()}\r\n'
-        'Content-Type:application/json; charset=utf-8\r\n'
-        'Path:speech.config\r\n\r\n'
-        '{"context":{"synthesis":{"audio":{"metadataoptions":{'
-        '"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"'
-        '},"outputFormat":"${outputFormat.trim().isEmpty ? SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge) : outputFormat.trim()}"}}}}';
-  }
-
-  String _edgeSsmlRequest({
-    required String requestId,
-    required String timestamp,
+  String _edgeSsmlBody({
     required String voice,
     required String rate,
     required String text,
   }) {
-    return 'X-RequestId:$requestId\r\n'
-        'Content-Type:application/ssml+xml\r\n'
-        'X-Timestamp:${timestamp}Z\r\n'
-        'Path:ssml\r\n\r\n'
-        '<speak version="1.0" xml:lang="en-US">'
-        '<voice name="$voice"><prosody rate="$rate">'
+    final locale = _voiceLocale(voice);
+    return '<speak version="1.0" '
+        'xmlns="http://www.w3.org/2001/10/synthesis" '
+        'xmlns:mstts="http://www.w3.org/2001/mstts" '
+        'xml:lang="$locale">'
+        '<voice xml:lang="$locale" name="$voice"><prosody rate="$rate">'
         '${const HtmlEscape().convert(_sanitizeEdgeText(text))}'
         '</prosody></voice></speak>';
-  }
-
-  List<String> _splitEdgeText(String text, {int maxBytes = 3800}) {
-    final cleaned = _sanitizeEdgeText(text).trim();
-    if (cleaned.isEmpty) return const [];
-
-    final source = utf8.encode(cleaned);
-    final chunks = <String>[];
-    var offset = 0;
-
-    while (offset < source.length) {
-      final remaining = source.length - offset;
-      final candidateLength = remaining <= maxBytes ? remaining : maxBytes;
-      var split = offset + candidateLength;
-
-      while (split > offset &&
-          split < source.length &&
-          (source[split] & 0xC0) == 0x80) {
-        split--;
-      }
-      if (split <= offset) {
-        split = offset + candidateLength;
-      }
-
-      var chunk = utf8.decode(source.sublist(offset, split)).trim();
-      final naturalBreak = _lastNaturalBreak(chunk);
-      if (naturalBreak > 0 && naturalBreak >= chunk.length ~/ 2) {
-        chunk = chunk.substring(0, naturalBreak).trim();
-        split = offset + utf8.encode(chunk).length;
-      }
-
-      if (chunk.isEmpty) {
-        chunk = utf8.decode(source.sublist(offset, split)).trim();
-      }
-      if (chunk.isNotEmpty) {
-        chunks.add(chunk);
-      }
-      offset = split;
-    }
-
-    return chunks;
-  }
-
-  int _lastNaturalBreak(String value) {
-    const breakChars = [
-      '\n',
-      '。',
-      '！',
-      '？',
-      '.',
-      '!',
-      '?',
-      ';',
-      '；',
-      ',',
-      '，',
-      ' '
-    ];
-    var index = -1;
-    for (final char in breakChars) {
-      final next = value.lastIndexOf(char);
-      if (next > index) {
-        index = next;
-      }
-    }
-    return index == -1 ? -1 : index + 1;
   }
 
   String _sanitizeEdgeText(String text) {
@@ -722,28 +616,160 @@ class ReaderSpeechService {
     return buffer.toString();
   }
 
-  Map<String, String> _parseHeaderLines(String raw) {
-    final headers = <String, String>{};
-    for (final line in raw.split('\r\n')) {
-      final index = line.indexOf(':');
-      if (index <= 0) continue;
-      headers[line.substring(0, index)] = line.substring(index + 1).trim();
-    }
-    return headers;
-  }
-
   String _edgeRate(double speed) {
     final delta = ((speed - 1.0) * 100).round().clamp(-100, 100);
     return '${delta >= 0 ? '+' : ''}$delta%';
   }
 
-  String _edgeRequestId() => _randomHex(32).toLowerCase();
+  Map<String, String> _edgeRequestHeaders() {
+    return const {
+      'User-Agent': _edgeUserAgent,
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'Origin': _edgeOrigin,
+    };
+  }
 
-  String _edgeMuid() => _randomHex(32);
+  Uri _edgeBaseUri(String endpoint) {
+    final normalized = SpeechSettings.normalizeEndpointFor(
+      CloudTtsProvider.microsoftEdge,
+      endpoint,
+    );
+    return Uri.parse(normalized);
+  }
 
-  String _edgeTimestamp() => _edgeDateHeader();
+  String _edgeNormalizedPath(
+    String rawPath, {
+    required bool synthesisPath,
+  }) {
+    var path = rawPath.trim();
+    if (path.isEmpty || path == '/') {
+      return synthesisPath
+          ? '/consumer/speech/synthesize/readaloud/edge/v1'
+          : '/consumer/speech/synthesize/readaloud/voices/list';
+    }
+    if (path.endsWith('/')) {
+      path = path.substring(0, path.length - 1);
+    }
 
-  String _edgeDateHeader() {
+    if (synthesisPath) {
+      if (path.endsWith('/voices/list')) {
+        return path.replaceFirst(RegExp(r'/voices/list$'), '/edge/v1');
+      }
+      if (path.endsWith('/readaloud')) {
+        return '$path/edge/v1';
+      }
+      if (path.endsWith('/edge/v1')) {
+        return path;
+      }
+      return path;
+    }
+
+    if (path.endsWith('/edge/v1')) {
+      return path.replaceFirst(RegExp(r'/edge/v1$'), '/voices/list');
+    }
+    if (path.endsWith('/readaloud')) {
+      return '$path/voices/list';
+    }
+    if (path.endsWith('/voices/list')) {
+      return path;
+    }
+    return path;
+  }
+
+  Map<String, String> _edgeQueryParameters(Map<String, String> raw) {
+    final query = <String, String>{};
+    for (final entry in raw.entries) {
+      final key = entry.key.toLowerCase();
+      if (key == 'trustedclienttoken' || key == 'connectionid') {
+        continue;
+      }
+      query[entry.key] = entry.value;
+    }
+    return query;
+  }
+
+  String _edgeSpeechConfigMessage({
+    required String timestamp,
+    required String outputFormat,
+  }) {
+    return 'X-Timestamp:$timestamp\r\n'
+        'Content-Type:application/json; charset=utf-8\r\n'
+        'Path:speech.config\r\n\r\n'
+        '{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"$outputFormat"}}}}';
+  }
+
+  String _edgeSsmlRequestMessage({
+    required String requestId,
+    required String timestamp,
+    required String voice,
+    required String rate,
+    required String text,
+  }) {
+    return 'X-RequestId:$requestId\r\n'
+        'Content-Type:application/ssml+xml\r\n'
+        'X-Timestamp:$timestamp\r\n'
+        'Path:ssml\r\n\r\n'
+        '${_edgeSsmlBody(voice: voice, rate: rate, text: text)}';
+  }
+
+  List<int> _edgeAudioBytes(List<int> message) {
+    if (message.length >= 2) {
+      final headerLength = (message[0] << 8) | message[1];
+      final payloadStart = headerLength + 2;
+      if (payloadStart <= message.length) {
+        final headers = ascii.decode(
+          message.sublist(2, payloadStart),
+          allowInvalid: true,
+        );
+        if (headers.contains('Path:audio')) {
+          return message.sublist(payloadStart);
+        }
+      }
+    }
+
+    final boundary = _indexOfBytes(message, const [13, 10, 13, 10]);
+    if (boundary < 0) {
+      return const [];
+    }
+    final headers = ascii.decode(
+      message.sublist(0, boundary),
+      allowInvalid: true,
+    );
+    if (!headers.contains('Path:audio')) {
+      return const [];
+    }
+    return message.sublist(boundary + 4);
+  }
+
+  int _indexOfBytes(List<int> source, List<int> target) {
+    if (target.isEmpty || source.length < target.length) {
+      return -1;
+    }
+    for (var i = 0; i <= source.length - target.length; i++) {
+      var matched = true;
+      for (var j = 0; j < target.length; j++) {
+        if (source[i + j] != target[j]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  String _edgeRequestId() {
+    return _uuid.v4().replaceAll('-', '').toUpperCase();
+  }
+
+  String _edgeConnectionId() {
+    return _uuid.v4().replaceAll('-', '');
+  }
+
+  String _edgeTimestamp() {
+    final now = DateTime.now().toUtc();
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = [
       'Jan',
@@ -759,7 +785,7 @@ class ReaderSpeechService {
       'Nov',
       'Dec',
     ];
-    final now = DateTime.now().toUtc();
+
     final weekday = weekdays[now.weekday - 1];
     final month = months[now.month - 1];
     final day = now.day.toString().padLeft(2, '0');
@@ -769,30 +795,12 @@ class ReaderSpeechService {
     return '$weekday $month $day ${now.year} $hour:$minute:$second GMT+0000 (Coordinated Universal Time)';
   }
 
-  String _generateEdgeSecMsGec() {
-    const windowsEpoch = 11644473600;
-    final seconds = DateTime.now().toUtc().millisecondsSinceEpoch / 1000;
-    final roundedSeconds =
-        seconds + windowsEpoch - ((seconds + windowsEpoch) % 300);
-    final ticks = (roundedSeconds * 10000000).round();
-    final digest = sha256.convert(
-      ascii.encode('$ticks$_edgeTrustedClientToken'),
-    );
-    return digest.toString().toUpperCase();
-  }
-
-  String _randomHex(int length) {
-    const digits = '0123456789ABCDEF';
-    final buffer = StringBuffer();
-    for (var index = 0; index < length; index++) {
-      buffer.write(digits[_random.nextInt(digits.length)]);
+  String _voiceLocale(String voice) {
+    final parts = voice.split('-');
+    if (parts.length >= 2) {
+      return '${parts[0]}-${parts[1]}';
     }
-    return buffer.toString();
-  }
-
-  Uint8List _outputOrEmpty(BytesBuilder builder) {
-    final bytes = builder.takeBytes();
-    return bytes.isEmpty ? Uint8List(0) : Uint8List.fromList(bytes);
+    return 'en-US';
   }
 
   String _normalizeApiKey(String raw) {
@@ -802,6 +810,14 @@ class ReaderSpeechService {
     }
     value = value.replaceFirst(
       RegExp(r'^Bearer\s+', caseSensitive: false),
+      '',
+    );
+    value = value.replaceFirst(
+      RegExp(r'^Authorization\s*:\s*Bearer\s+', caseSensitive: false),
+      '',
+    );
+    value = value.replaceFirst(
+      RegExp(r'^Ocp-Apim-Subscription-Key\s*:\s*', caseSensitive: false),
       '',
     );
     value = value.replaceFirst(
@@ -815,12 +831,19 @@ class ReaderSpeechService {
     try {
       final decoded = jsonDecode(responseBody);
       if (decoded is Map<String, dynamic>) {
+        final message = decoded['message']?.toString().trim() ?? '';
+        if (message.isNotEmpty) return message;
         final detail = decoded['detail'];
         if (detail is String && detail.trim().isNotEmpty) {
           return detail.trim();
         }
         if (detail is Map<String, dynamic>) {
           final message = detail['message']?.toString().trim() ?? '';
+          if (message.isNotEmpty) return message;
+        }
+        final error = decoded['error'];
+        if (error is Map<String, dynamic>) {
+          final message = error['message']?.toString().trim() ?? '';
           if (message.isNotEmpty) return message;
         }
       }

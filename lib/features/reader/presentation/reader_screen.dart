@@ -953,13 +953,12 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                               ? SpeechSettings.defaultEndpointFor(
                                   _cloudProvider,
                                 )
-                              : settings.endpoint,
+                              : SpeechSettings.normalizeEndpointFor(
+                                  settings.cloudProvider,
+                                  settings.endpoint,
+                                ),
                           apiKey:
-                              _cloudProvider == CloudTtsProvider.microsoftEdge
-                                  ? ''
-                                  : (normalizeHiddenProvider
-                                      ? ''
-                                      : settings.apiKey),
+                              normalizeHiddenProvider ? '' : settings.apiKey,
                           model: providerChanged
                               ? SpeechSettings.defaultModelFor(
                                   _cloudProvider,
@@ -1016,8 +1015,12 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
 
   Future<void> _loadEdgeVoices(SpeechSettings settings) async {
     final endpoint = _cloudProvider == settings.cloudProvider
-        ? settings.endpoint
+        ? SpeechSettings.normalizeEndpointFor(
+            settings.cloudProvider,
+            settings.endpoint,
+          )
         : SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge);
+
     setState(() {
       _loadingEdgeVoices = true;
       _edgeVoicesError = null;
