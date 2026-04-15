@@ -25,6 +25,9 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
   late final PdfViewerController _pdfViewerController;
   String _selectedText = '';
   int _activePageNumber = 1;
+  PdfTextSearchResult? _searchResult;
+  String _lastHighlightQuery = '';
+  int? _lastHighlightPage;
 
   @override
   void initState() {
@@ -33,13 +36,45 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
   }
 
   @override
+  void dispose() {
+    _searchResult?.clear();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = ref.read(readerControllerProvider);
+    final autoSpeech = ref.watch(readerAutoSpeechProvider(widget.book.id));
     ref.listen<int?>(requestedPdfPageProvider(widget.book.id), (_, nextPage) {
       if (nextPage == null || nextPage == _activePageNumber) return;
       _pdfViewerController.jumpToPage(nextPage);
       ref.read(requestedPdfPageProvider(widget.book.id).notifier).state = null;
     });
+    ref.listen<ReaderAutoSpeechState?>(
+      readerAutoSpeechProvider(widget.book.id),
+      (_, next) {
+        if (next == null || next.mode != ReaderAutoSpeechMode.pdf) {
+          _clearAutoHighlight();
+          return;
+        }
+        final targetPage = next.pageNumber;
+        if (targetPage != null && targetPage != _activePageNumber) {
+          _pdfViewerController.jumpToPage(targetPage);
+        }
+        final query = next.highlightQuery?.trim() ?? '';
+        if (query.isEmpty ||
+            (query == _lastHighlightQuery &&
+                targetPage == _lastHighlightPage)) {
+          return;
+        }
+        _lastHighlightQuery = query;
+        _lastHighlightPage = targetPage;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || query.isEmpty) return;
+          _applyAutoHighlight(query);
+        });
+      },
+    );
 
     return Stack(
       children: [
@@ -54,6 +89,9 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
               enableTextSelection: true,
               canShowTextSelectionMenu: true,
               onDocumentLoaded: (_) {
+                ref
+                    .read(currentPdfPageProvider(widget.book.id).notifier)
+                    .state = 1;
                 _syncCurrentChapter(1);
               },
               onTextSelectionChanged: (details) {
@@ -77,6 +115,9 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
               },
               onPageChanged: (details) {
                 _activePageNumber = details.newPageNumber;
+                ref
+                    .read(currentPdfPageProvider(widget.book.id).notifier)
+                    .state = details.newPageNumber;
                 final totalPages = _pdfViewerController.pageCount;
                 final percentage = totalPages <= 0
                     ? 0.0
@@ -95,6 +136,36 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
             ),
           ),
         ),
+        if (autoSpeech?.mode == ReaderAutoSpeechMode.pdf &&
+            (autoSpeech?.label?.isNotEmpty ?? false))
+          Positioned(
+            top: 20,
+            right: 20,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xCC18211D),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: Text(
+                      '自动朗读中：${autoSpeech!.label}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (_selectedText.isNotEmpty)
           Align(
             alignment: Alignment.bottomCenter,
@@ -125,13 +196,30 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
               pageNumber: pageNumber,
             );
     if (!mounted || requestPageNumber != _activePageNumber) return;
+    final autoSpeech = ref.read(readerAutoSpeechProvider(widget.book.id));
     ref.read(currentPdfChapterProvider(widget.book.id).notifier).state =
         chapter;
     ref.read(readerControllerProvider).setReaderExcerpt(
           bookId: widget.book.id,
-          text: chapter.text.isEmpty
-              ? '${widget.book.title} 当前页暂无可朗读文本。'
-              : chapter.text,
+          text: autoSpeech?.mode == ReaderAutoSpeechMode.pdf &&
+                  autoSpeech?.pageNumber == pageNumber &&
+                  autoSpeech?.currentText.trim().isNotEmpty == true
+              ? autoSpeech!.currentText
+              : chapter.text.isEmpty
+                  ? '${widget.book.title} 当前页暂无可朗读文本。'
+                  : chapter.text,
         );
+  }
+
+  void _applyAutoHighlight(String query) {
+    _searchResult?.clear();
+    _searchResult = _pdfViewerController.searchText(query);
+  }
+
+  void _clearAutoHighlight() {
+    _lastHighlightQuery = '';
+    _lastHighlightPage = null;
+    _searchResult?.clear();
+    _searchResult = null;
   }
 }

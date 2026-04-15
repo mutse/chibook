@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -19,11 +20,15 @@ class ReaderSpeechService {
     AudioPlayer? audioPlayer,
   })  : _flutterTts = flutterTts ?? FlutterTts(),
         _client = client ?? http.Client(),
-        _audioPlayer = audioPlayer ?? AudioPlayer();
+        _audioPlayer = audioPlayer ?? AudioPlayer() {
+    _configurePlaybackCallbacks();
+  }
 
   final FlutterTts _flutterTts;
   final http.Client _client;
   final AudioPlayer _audioPlayer;
+  Completer<void>? _playbackCompleter;
+  Object? _activePlaybackToken;
 
   static const _edgeTrustedClientToken = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
   static const _edgeOrigin =
@@ -169,6 +174,7 @@ class ReaderSpeechService {
   }
 
   Future<void> stop() async {
+    _cancelTrackedPlayback();
     await _audioPlayer.stop();
     await _flutterTts.stop();
   }
@@ -179,13 +185,15 @@ class ReaderSpeechService {
 
   Future<void> _speakLocally(String text) async {
     final config = await _loadConfig();
+    _cancelTrackedPlayback();
     await _audioPlayer.stop();
     await _flutterTts.setSpeechRate(config.localSpeechRate);
     await _flutterTts.setPitch(1.0);
+    await _flutterTts.awaitSpeakCompletion(true);
     if (config.localVoiceId.isNotEmpty) {
       await _setLocalVoiceById(config.localVoiceId);
     }
-    await _flutterTts.speak(text);
+    await _runTrackedPlayback(() => _flutterTts.speak(text));
   }
 
   Future<List<LocalVoiceOption>> listLocalVoices() async {
@@ -894,10 +902,67 @@ class ReaderSpeechService {
   }
 
   Future<void> _playCachedFile(File file) async {
+    _cancelTrackedPlayback();
     await _audioPlayer.stop();
-    await _audioPlayer.play(
-      DeviceFileSource(file.path, mimeType: 'audio/mpeg'),
+    await _runTrackedPlayback(
+      () => _audioPlayer.play(
+        DeviceFileSource(file.path, mimeType: 'audio/mpeg'),
+      ),
     );
+  }
+
+  void _configurePlaybackCallbacks() {
+    _flutterTts.setCompletionHandler(_completeTrackedPlayback);
+    _flutterTts.setCancelHandler(_cancelTrackedPlayback);
+    _flutterTts.setPauseHandler(() {});
+    _flutterTts.setContinueHandler(() {});
+    _flutterTts.setErrorHandler((error) {
+      _failTrackedPlayback(Exception(error));
+    });
+    _audioPlayer.onPlayerComplete.listen((_) => _completeTrackedPlayback());
+  }
+
+  Future<void> _runTrackedPlayback(Future<dynamic> Function() starter) async {
+    final token = Object();
+    final completer = Completer<void>();
+    _activePlaybackToken = token;
+    _playbackCompleter = completer;
+    try {
+      await starter();
+      await completer.future;
+    } catch (error) {
+      if (identical(_activePlaybackToken, token) && !completer.isCompleted) {
+        completer.completeError(error);
+      }
+      rethrow;
+    } finally {
+      if (identical(_activePlaybackToken, token)) {
+        _activePlaybackToken = null;
+        _playbackCompleter = null;
+      }
+    }
+  }
+
+  void _completeTrackedPlayback() {
+    final completer = _playbackCompleter;
+    if (completer == null || completer.isCompleted) return;
+    completer.complete();
+  }
+
+  void _cancelTrackedPlayback() {
+    final completer = _playbackCompleter;
+    if (completer == null || completer.isCompleted) return;
+    completer.complete();
+    _playbackCompleter = null;
+    _activePlaybackToken = null;
+  }
+
+  void _failTrackedPlayback(Object error) {
+    final completer = _playbackCompleter;
+    if (completer == null || completer.isCompleted) return;
+    completer.completeError(error);
+    _playbackCompleter = null;
+    _activePlaybackToken = null;
   }
 
   String _cacheKey(String input) {

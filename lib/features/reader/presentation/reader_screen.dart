@@ -237,6 +237,7 @@ class _SpeechBar extends ConsumerWidget {
     final excerpt = ref.watch(readerExcerptProvider(book.id));
     final chapter = ref.watch(currentEpubChapterProvider(book.id));
     final pdfChapter = ref.watch(currentPdfChapterProvider(book.id));
+    final autoSpeech = ref.watch(readerAutoSpeechProvider(book.id));
     final speechState = ref.watch(readerSpeechStateProvider);
     final speechText = chapter != null
         ? chapter.plainText
@@ -314,7 +315,9 @@ class _SpeechBar extends ConsumerWidget {
                   if (chapterLabel != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      chapterLabel,
+                      autoSpeech?.label?.isNotEmpty ?? false
+                          ? '当前朗读：${autoSpeech!.label}'
+                          : chapterLabel,
                       style: TextStyle(
                         color: colors.secondaryForeground,
                         fontSize: 12,
@@ -328,36 +331,25 @@ class _SpeechBar extends ConsumerWidget {
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
-              onPressed: () {
-                if (chapter != null) {
-                  controller.speakBookSegment(
-                    bookId: book.id,
-                    segmentId: segmentId,
-                    text: speechText,
+              onPressed: () async {
+                try {
+                  await controller.playAutoForCurrentBook(book);
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('自动朗读启动失败: $error')),
                   );
-                  return;
                 }
-                if (pdfChapter != null) {
-                  controller.speakBookSegment(
-                    bookId: book.id,
-                    segmentId: segmentId,
-                    text: speechText,
-                  );
-                  return;
-                }
-                controller.speakBookSegment(
-                  bookId: book.id,
-                  segmentId: 'default',
-                  text: speechText,
-                );
               },
               icon: const Icon(Icons.play_arrow),
               label: Text(
-                chapter != null
-                    ? '朗读本章'
-                    : pdfChapter != null
-                        ? '朗读当前章节'
-                        : '播放',
+                autoSpeech != null
+                    ? '重新自动朗读'
+                    : chapter != null
+                        ? '自动朗读本章'
+                        : pdfChapter != null
+                            ? '自动朗读'
+                            : '播放',
               ),
             ),
             const SizedBox(width: 4),
