@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:crypto/crypto.dart';
 import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
@@ -33,6 +34,8 @@ class ReaderSpeechService {
   static const _edgeTrustedClientToken = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
   static const _edgeOrigin =
       'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold';
+  static const _edgeChromiumFullVersion = '143.0.3650.75';
+  static const _edgeWindowsEpochSeconds = 11644473600;
   static const _uuid = Uuid();
 
   static const List<String> openAiVoices = [
@@ -71,7 +74,7 @@ class ReaderSpeechService {
   static const _edgeUserAgent =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 '
-      'Safari/537.36 Edg/143.0.3650.0';
+      'Safari/537.36 Edg/143.0.3650.75';
 
   Future<void> speak(String text) async {
     final config = await _loadConfig();
@@ -275,11 +278,12 @@ class ReaderSpeechService {
   Future<List<CloudVoiceOption>> listEdgeVoices({
     required String endpoint,
   }) async {
+    final secMsGec = _edgeSecMsGec();
     final response = await _client.get(
-      _edgeVoicesUri(endpoint),
+      _edgeVoicesUri(endpoint, secMsGec: secMsGec),
       headers: {
         'Accept': 'application/json',
-        ..._edgeRequestHeaders(),
+        ..._edgeRequestHeaders(includeMuid: true),
       },
     );
 
@@ -501,13 +505,15 @@ class ReaderSpeechService {
     String text,
     SpeechConfig config,
   ) async {
+    final secMsGec = _edgeSecMsGec();
     final socket = await WebSocket.connect(
       _edgeWebSocketUri(
         config.endpoint,
         connectionId: _edgeConnectionId(),
+        secMsGec: secMsGec,
       ).toString(),
       headers: {
-        ..._edgeRequestHeaders(),
+        ..._edgeRequestHeaders(includeMuid: true),
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache',
       },
@@ -567,7 +573,10 @@ class ReaderSpeechService {
     return uri.replace(path: '/v2/voices', queryParameters: null);
   }
 
-  Uri _edgeVoicesUri(String endpoint) {
+  Uri _edgeVoicesUri(
+    String endpoint, {
+    required String secMsGec,
+  }) {
     final uri = _edgeBaseUri(endpoint);
     return uri.replace(
       scheme: uri.scheme == 'ws' ? 'http' : 'https',
@@ -575,6 +584,8 @@ class ReaderSpeechService {
       queryParameters: {
         ..._edgeQueryParameters(uri.queryParameters),
         'trustedclienttoken': _edgeTrustedClientToken,
+        'Sec-MS-GEC': secMsGec,
+        'Sec-MS-GEC-Version': _edgeSecMsGecVersion,
       },
     );
   }
@@ -582,6 +593,7 @@ class ReaderSpeechService {
   Uri _edgeWebSocketUri(
     String endpoint, {
     required String connectionId,
+    required String secMsGec,
   }) {
     final uri = _edgeBaseUri(endpoint);
     return uri.replace(
@@ -590,6 +602,8 @@ class ReaderSpeechService {
       queryParameters: {
         ..._edgeQueryParameters(uri.queryParameters),
         'TrustedClientToken': _edgeTrustedClientToken,
+        'Sec-MS-GEC': secMsGec,
+        'Sec-MS-GEC-Version': _edgeSecMsGecVersion,
         'ConnectionId': connectionId,
       },
     );
@@ -629,12 +643,19 @@ class ReaderSpeechService {
     return '${delta >= 0 ? '+' : ''}$delta%';
   }
 
-  Map<String, String> _edgeRequestHeaders() {
-    return const {
+  Map<String, String> _edgeRequestHeaders({
+    required bool includeMuid,
+  }) {
+    final headers = {
       'User-Agent': _edgeUserAgent,
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br, zstd',
       'Origin': _edgeOrigin,
     };
+    if (includeMuid) {
+      headers['Cookie'] = 'muid=${_edgeMuid()};';
+    }
+    return headers;
   }
 
   Uri _edgeBaseUri(String endpoint) {
@@ -688,7 +709,10 @@ class ReaderSpeechService {
     final query = <String, String>{};
     for (final entry in raw.entries) {
       final key = entry.key.toLowerCase();
-      if (key == 'trustedclienttoken' || key == 'connectionid') {
+      if (key == 'trustedclienttoken' ||
+          key == 'connectionid' ||
+          key == 'sec-ms-gec' ||
+          key == 'sec-ms-gec-version') {
         continue;
       }
       query[entry.key] = entry.value;
@@ -715,7 +739,7 @@ class ReaderSpeechService {
   }) {
     return 'X-RequestId:$requestId\r\n'
         'Content-Type:application/ssml+xml\r\n'
-        'X-Timestamp:$timestamp\r\n'
+        'X-Timestamp:${timestamp}Z\r\n'
         'Path:ssml\r\n\r\n'
         '${_edgeSsmlBody(voice: voice, rate: rate, text: text)}';
   }
@@ -774,6 +798,21 @@ class ReaderSpeechService {
 
   String _edgeConnectionId() {
     return _uuid.v4().replaceAll('-', '');
+  }
+
+  String _edgeMuid() {
+    return _uuid.v4().replaceAll('-', '').toUpperCase();
+  }
+
+  String get _edgeSecMsGecVersion => '1-$_edgeChromiumFullVersion';
+
+  String _edgeSecMsGec() {
+    final nowSeconds = DateTime.now().toUtc().millisecondsSinceEpoch / 1000.0;
+    var ticks = nowSeconds + _edgeWindowsEpochSeconds;
+    ticks -= ticks % 300;
+    final windowsFileTimeTicks = (ticks * 10000000).round();
+    final hashInput = '$windowsFileTimeTicks$_edgeTrustedClientToken';
+    return sha256.convert(ascii.encode(hashInput)).toString().toUpperCase();
   }
 
   String _edgeTimestamp() {
