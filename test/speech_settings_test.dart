@@ -1,7 +1,32 @@
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('default speech settings prefer microsoft edge without api key', () {
+    final settings = SpeechSettings.defaults();
+
+    expect(settings.providerMode, SpeechProviderMode.auto);
+    expect(settings.cloudProvider, CloudTtsProvider.microsoftEdge);
+    expect(
+      settings.endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(settings.apiKey, isEmpty);
+    expect(
+      settings.model,
+      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(
+      settings.voice,
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(settings.hasCloudConfig, isTrue);
+  });
+
   test('microsoft edge cloud config does not require an api key', () {
     const settings = SpeechSettings(
       providerMode: SpeechProviderMode.cloud,
@@ -30,5 +55,30 @@ void main() {
       endpoint,
       SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
     );
+  });
+
+  test('service load uses provider-specific defaults for microsoft edge',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      SpeechSettingsStorageKeys.cloudProvider:
+          CloudTtsProvider.microsoftEdge.name,
+    });
+
+    final settings = await const SpeechSettingsService().load();
+
+    expect(settings.cloudProvider, CloudTtsProvider.microsoftEdge);
+    expect(
+      settings.endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(
+      settings.model,
+      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(
+      settings.voice,
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(settings.apiKey, isEmpty);
   });
 }

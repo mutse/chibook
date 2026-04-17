@@ -42,6 +42,9 @@ class SpeechSettingsService {
     final providerMode = _parseMode(providerName) ?? defaults.providerMode;
     final cloudProvider =
         _parseCloudProvider(cloudProviderName) ?? defaults.cloudProvider;
+    final defaultEndpoint = SpeechSettings.defaultEndpointFor(cloudProvider);
+    final defaultModel = SpeechSettings.defaultModelFor(cloudProvider);
+    final defaultVoice = SpeechSettings.defaultVoiceFor(cloudProvider);
     final rawEndpoint = _readString(
       prefs,
       SpeechSettingsStorageKeys.endpoint,
@@ -52,7 +55,7 @@ class SpeechSettingsService {
       providerMode: providerMode,
       cloudProvider: cloudProvider,
       endpoint: rawEndpoint == null
-          ? defaults.endpoint
+          ? defaultEndpoint
           : SpeechSettings.normalizeEndpointFor(cloudProvider, rawEndpoint),
       apiKey: _readString(
             prefs,
@@ -65,13 +68,13 @@ class SpeechSettingsService {
             SpeechSettingsStorageKeys.model,
             SpeechSettingsStorageKeys.legacyModel,
           ) ??
-          defaults.model,
+          defaultModel,
       voice: _readString(
             prefs,
             SpeechSettingsStorageKeys.voice,
             SpeechSettingsStorageKeys.legacyVoice,
           ) ??
-          defaults.voice,
+          defaultVoice,
       localVoiceId: _readString(
             prefs,
             SpeechSettingsStorageKeys.localVoiceId,

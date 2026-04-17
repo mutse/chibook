@@ -950,7 +950,11 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                                   settings.endpoint,
                                 ),
                           apiKey:
-                              normalizeHiddenProvider ? '' : settings.apiKey,
+                              _cloudProvider == CloudTtsProvider.microsoftEdge
+                                  ? ''
+                                  : (normalizeHiddenProvider
+                                      ? ''
+                                      : settings.apiKey),
                           model: providerChanged
                               ? SpeechSettings.defaultModelFor(
                                   _cloudProvider,

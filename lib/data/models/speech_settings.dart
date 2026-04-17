@@ -18,11 +18,12 @@ class SpeechSettings {
   factory SpeechSettings.defaults() {
     return const SpeechSettings(
       providerMode: SpeechProviderMode.auto,
-      cloudProvider: CloudTtsProvider.openai,
-      endpoint: 'https://api.openai.com/v1/audio/speech',
+      cloudProvider: CloudTtsProvider.microsoftEdge,
+      endpoint:
+          'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
       apiKey: '',
-      model: 'gpt-4o-mini-tts',
-      voice: 'alloy',
+      model: 'audio-24khz-48kbitrate-mono-mp3',
+      voice: 'zh-CN-XiaoxiaoNeural',
       localVoiceId: '',
       speed: 1.0,
       localSpeechRate: 0.45,

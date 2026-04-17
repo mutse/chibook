@@ -19,6 +19,7 @@ A cross-platform Android/iOS reading app inspired by WeRead, built with Flutter.
 - File Picker for book import
 - Flutter TTS for on-device speech fallback
 - OpenAI, Microsoft Edge Read Aloud, and ElevenLabs cloud TTS adapter for AI narration
+- Microsoft Edge Read Aloud is the default cloud TTS path and works without an API key
 
 ## Project status
 

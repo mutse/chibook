@@ -549,7 +549,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _cloudProvider,
         _endpointController.text.trim(),
       ),
-      apiKey: _apiKeyController.text.trim(),
+      apiKey: _cloudProvider == CloudTtsProvider.microsoftEdge
+          ? ''
+          : _apiKeyController.text.trim(),
       model: _modelController.text.trim(),
       voice: _cloudProvider == CloudTtsProvider.openai
           ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
@@ -660,6 +662,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _endpointController.text = SpeechSettings.defaultEndpointFor(nextProvider);
     _modelController.text = SpeechSettings.defaultModelFor(nextProvider);
     _voiceController.text = SpeechSettings.defaultVoiceFor(nextProvider);
+    if (nextProvider == CloudTtsProvider.microsoftEdge) {
+      _apiKeyController.clear();
+    }
     if (nextProvider == CloudTtsProvider.openai) {
       _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.contains(
         _voiceController.text.trim(),
