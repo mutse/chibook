@@ -110,55 +110,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ],
                     ),
-                  LiquidGlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '当前配置',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '${_modeLabel(_providerMode)} · ${_cloudProviderLabel(_cloudProvider)} · ${_voiceController.text.trim().isEmpty ? '系统默认音色' : _voiceController.text.trim()}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(height: 1.6),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _MiniStat(
-                                label: '云端语速',
-                                value: '${_speed.toStringAsFixed(1)}x',
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MiniStat(
-                                label: '本地语速',
-                                value: _localSpeechRate.toStringAsFixed(2),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MiniStat(
-                                label: '缓存状态',
-                                value: _cloudProvider ==
-                                        CloudTtsProvider.microsoftEdge
-                                    ? '直连'
-                                    : 'API',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                  _SettingsHero(
+                    modeLabel: _modeLabel(_providerMode),
+                    providerLabel: _cloudProviderLabel(_cloudProvider),
+                    voiceLabel: _voiceController.text.trim().isEmpty
+                        ? '系统默认音色'
+                        : _voiceController.text.trim(),
+                    cloudSpeed: '${_speed.toStringAsFixed(1)}x',
+                    localSpeed: _localSpeechRate.toStringAsFixed(2),
+                    connectionState:
+                        _cloudProvider == CloudTtsProvider.microsoftEdge
+                            ? '直连'
+                            : 'API',
                   ),
                   const SizedBox(height: 16),
                   _SettingsSection(
@@ -783,6 +746,147 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
+class _SettingsHero extends StatelessWidget {
+  const _SettingsHero({
+    required this.modeLabel,
+    required this.providerLabel,
+    required this.voiceLabel,
+    required this.cloudSpeed,
+    required this.localSpeed,
+    required this.connectionState,
+  });
+
+  final String modeLabel;
+  final String providerLabel;
+  final String voiceLabel;
+  final String cloudSpeed;
+  final String localSpeed;
+  final String connectionState;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      radius: 32,
+      colors: const [
+        Color(0xFFEAF2FF),
+        Color(0xD9FFFFFF),
+        Color(0xFFDDEAFF),
+      ],
+      child: Stack(
+        children: [
+          Positioned(
+            right: -40,
+            top: -40,
+            child: Container(
+              width: 164,
+              height: 164,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF72B7FF).withValues(alpha: 0.26),
+                    const Color(0x0072B7FF),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(19),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF5C7CFF), Color(0xFF87DAFF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x335C7CFF),
+                          blurRadius: 24,
+                          offset: Offset(0, 14),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.graphic_eq_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'AI 朗读控制台',
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '$modeLabel · $providerLabel · $voiceLabel',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(height: 1.45),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              WaveformLine(
+                color: const Color(0xFF5D7CFF).withValues(alpha: 0.60),
+                barCount: 36,
+                maxHeight: 28,
+                minHeight: 6,
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _MiniStat(
+                      label: '云端语速',
+                      value: cloudSpeed,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _MiniStat(
+                      label: '本地语速',
+                      value: localSpeed,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _MiniStat(
+                      label: '连接',
+                      value: connectionState,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SettingsSection extends StatelessWidget {
   const _SettingsSection({
     required this.title,
@@ -800,17 +904,45 @@ class _SettingsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style:
-                Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
+                child: const Icon(
+                  Icons.tune_rounded,
+                  size: 19,
+                  color: Color(0xFF5D7CFF),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            height: 1.6,
+                            color: const Color(0xFF647196),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           child,
@@ -836,6 +968,9 @@ class _MiniStat extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.48),
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.72),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

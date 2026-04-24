@@ -89,44 +89,11 @@ class _DiscoverBody extends StatelessWidget {
                 const SizedBox(height: 8),
                 const AppSearchBar(hint: '搜索书名 / 作者 / 关键词'),
                 const SizedBox(height: 20),
-                LiquidGlassCard(
-                  radius: 30,
-                  colors: const [Color(0xFFEEF4FF), Color(0xB9FFFFFF)],
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '为你整理的今日推荐',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        books.isEmpty
-                            ? '先导入几本书，我会按你的书库气质把发现页补成真正可逛的推荐流。'
-                            : '根据你最近导入和收听的书，先把更适合“现在开始听”的内容提到前面。',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyLarge
-                            ?.copyWith(height: 1.6),
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: categories.map((category) {
-                          return GestureDetector(
-                            onTap: () => onSelectCategory(category),
-                            child: TagChip(
-                              label: category,
-                              active: selectedCategory == category,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ),
+                _DiscoverHero(
+                  bookCount: books.length,
+                  activeCategory: selectedCategory,
+                  categories: categories,
+                  onSelectCategory: onSelectCategory,
                 ),
               ],
             ),
@@ -239,63 +206,245 @@ class _FeaturedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = bookPalette(book);
+
     return LiquidGlassCard(
       radius: 30,
       onTap: () => context.push('/book/${book.id}'),
-      colors: bookPalette(book),
+      colors: palette,
       child: SizedBox(
         width: 220,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            Text(
-              pseudoCategoryForBook(book),
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
-                    fontWeight: FontWeight.w700,
-                  ),
+            Positioned(
+              right: -34,
+              top: -28,
+              child: Container(
+                width: 116,
+                height: 116,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.12),
+                ),
+              ),
             ),
-            const Spacer(),
-            Text(
-              book.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
+            Positioned(
+              right: 0,
+              top: 18,
+              child: Transform.rotate(
+                angle: 0.05,
+                child: BookCoverArt(
+                  book: book,
+                  width: 70,
+                  height: 96,
+                  radius: 18,
+                  showMeta: false,
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '${book.author} · ${estimatedListenLabel(book)}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
-                  ),
-            ),
-            const SizedBox(height: 16),
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: const Text(
-                    '打开书籍',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
+                Text(
+                  pseudoCategoryForBook(book),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.82),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 40),
+                SizedBox(
+                  width: 136,
+                  child: Text(
+                    book.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
                   ),
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  book.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.82),
+                      ),
+                ),
                 const Spacer(),
-                const Icon(Icons.arrow_forward_rounded, color: Colors.white),
+                WaveformLine(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  barCount: 18,
+                  maxHeight: 20,
+                  minHeight: 5,
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        estimatedListenLabel(book).replaceAll('可听完当前段落', ''),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    const Icon(Icons.arrow_forward_rounded,
+                        color: Colors.white),
+                  ],
+                ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DiscoverHero extends StatelessWidget {
+  const _DiscoverHero({
+    required this.bookCount,
+    required this.activeCategory,
+    required this.categories,
+    required this.onSelectCategory,
+  });
+
+  final int bookCount;
+  final String activeCategory;
+  final List<String> categories;
+  final ValueChanged<String> onSelectCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      radius: 32,
+      colors: const [
+        Color(0xFFEAF2FF),
+        Color(0xCCFFFFFF),
+        Color(0xFFDDEAFF),
+      ],
+      child: Stack(
+        children: [
+          Positioned(
+            right: -36,
+            top: -34,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF8DBBFF).withValues(alpha: 0.34),
+                    const Color(0x008DBBFF),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF5C7CFF), Color(0xFF8FD7FF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x335C7CFF),
+                          blurRadius: 22,
+                          offset: Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '今日听书灵感',
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          bookCount == 0
+                              ? '导入书籍后，发现页会变成你的私人推荐流。'
+                              : '$bookCount 本书正在形成你的偏好地图',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(color: const Color(0xFF647196)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                bookCount == 0
+                    ? '先收几本想听的书，我会按主题、最近阅读和时长，为你排出更适合当下的一组。'
+                    : '根据最近导入和收听记录，优先浮出适合碎片时间打开的章节、书单和分类。',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyLarge
+                    ?.copyWith(height: 1.6),
+              ),
+              const SizedBox(height: 18),
+              WaveformLine(
+                color: const Color(0xFF5D7CFF).withValues(alpha: 0.62),
+                barCount: 34,
+                maxHeight: 28,
+                minHeight: 6,
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: categories.map((category) {
+                  return GestureDetector(
+                    onTap: () => onSelectCategory(category),
+                    child: TagChip(
+                      label: category,
+                      active: activeCategory == category,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -386,6 +535,8 @@ class _RecommendationRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = bookPalette(book);
+
     return LiquidGlassCard(
       radius: 26,
       onTap: () => context.push('/book/${book.id}'),
@@ -415,13 +566,37 @@ class _RecommendationRow extends StatelessWidget {
                   '${book.author} · ${pseudoCategoryForBook(book)}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: book.progress <= 0
+                        ? 0.18
+                        : book.progress.clamp(0.18, 1.0).toDouble(),
+                    minHeight: 6,
+                    color: palette.first,
+                    backgroundColor: const Color(0xFFDCE5FF),
+                  ),
+                ),
                 const SizedBox(height: 10),
-                Text(
-                  estimatedListenLabel(book),
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFF5D7CFF),
-                        fontWeight: FontWeight.w700,
+                Row(
+                  children: [
+                    TagChip(
+                      label: progressLabel(book),
+                      active: book.progress > 0,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        estimatedListenLabel(book),
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: const Color(0xFF5D7CFF),
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -21,109 +21,210 @@ class ProfileScreen extends ConsumerWidget {
             data: (books) {
               final activeCount =
                   books.where((book) => book.progress > 0).length;
+              final finishedCount =
+                  books.where((book) => book.progress >= 1).length + 28;
+              final recentBooks = sortBooksByRecent(books);
+              final recentBook = recentBooks.isEmpty ? null : recentBooks.first;
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
                 children: [
                   LiquidGlassCard(
-                    child: Column(
+                    radius: 32,
+                    colors: const [
+                      Color(0xFFEFF5FF),
+                      Color(0xD9FFFFFF),
+                      Color(0xFFE1ECFF),
+                    ],
+                    child: Stack(
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 62,
-                              height: 62,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Color(0xFF80CBFF),
-                                    Color(0xFF6C7FFF)
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.person_rounded,
-                                size: 36,
-                                color: Colors.white,
-                              ),
+                        Positioned(
+                          right: -46,
+                          top: -46,
+                          child: Container(
+                            width: 170,
+                            height: 170,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF78B7FF)
+                                  .withValues(alpha: 0.16),
                             ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        '阅读爱好者',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.w800),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF5D7CFF)
-                                              .withValues(alpha: 0.12),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          'VIP 体验',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelMedium
-                                              ?.copyWith(
-                                                color: const Color(0xFF5D7CFF),
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                        ),
+                          ),
+                        ),
+                        Column(
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 68,
+                                  height: 68,
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Color(0xFF80CBFF),
+                                        Color(0xFF6C7FFF),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Color(0x336C7FFF),
+                                        blurRadius: 24,
+                                        offset: Offset(0, 14),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    '当前音色: ${settings?.voice.isNotEmpty == true ? settings!.voice : '系统默认'}',
-                                    style:
-                                        Theme.of(context).textTheme.bodyMedium,
+                                  child: const Icon(
+                                    Icons.person_rounded,
+                                    size: 38,
+                                    color: Colors.white,
                                   ),
-                                ],
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              '阅读爱好者',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .headlineSmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                            ),
+                                          ),
+                                          const _VipBadge(),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '当前音色: ${settings?.voice.isNotEmpty == true ? settings!.voice : '系统默认'}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: const Color(0xFF647196),
+                                            ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      WaveformLine(
+                                        color: const Color(0xFF5D7CFF)
+                                            .withValues(alpha: 0.58),
+                                        barCount: 28,
+                                        maxHeight: 22,
+                                        minHeight: 5,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (recentBook != null) ...[
+                              const SizedBox(height: 18),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.48),
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                child: Row(
+                                  children: [
+                                    BookCoverArt(
+                                      book: recentBook,
+                                      width: 48,
+                                      height: 66,
+                                      radius: 14,
+                                      showMeta: false,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '最近在听',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelLarge
+                                                ?.copyWith(
+                                                  color:
+                                                      const Color(0xFF5D7CFF),
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            recentBook.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            progressLabel(recentBook),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton.filled(
+                                      onPressed: () => context.go('/player'),
+                                      icon:
+                                          const Icon(Icons.play_arrow_rounded),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _MetricCard(
-                                  label: '听书时长',
-                                  value: '${books.length * 64 + 128}',
-                                  unit: '小时'),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MetricCard(
-                                  label: '在听书籍',
-                                  value: '$activeCount',
-                                  unit: '本'),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MetricCard(
-                                  label: '听完书籍',
-                                  value:
-                                      '${books.where((book) => book.progress >= 1).length + 28}',
-                                  unit: '本'),
+                            ],
+                            const SizedBox(height: 18),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _MetricCard(
+                                    icon: Icons.graphic_eq_rounded,
+                                    label: '听书时长',
+                                    value: '${books.length * 64 + 128}',
+                                    unit: '小时',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _MetricCard(
+                                    icon: Icons.headphones_rounded,
+                                    label: '在听书籍',
+                                    value: '$activeCount',
+                                    unit: '本',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _MetricCard(
+                                    icon: Icons.verified_rounded,
+                                    label: '听完书籍',
+                                    value: '$finishedCount',
+                                    unit: '本',
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -178,11 +279,13 @@ class ProfileScreen extends ConsumerWidget {
 
 class _MetricCard extends StatelessWidget {
   const _MetricCard({
+    required this.icon,
     required this.label,
     required this.value,
     required this.unit,
   });
 
+  final IconData icon;
   final String label;
   final String value;
   final String unit;
@@ -198,6 +301,8 @@ class _MetricCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 18, color: const Color(0xFF5D7CFF)),
+          const SizedBox(height: 8),
           Text(label, style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 10),
           RichText(
@@ -220,6 +325,31 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
+class _VipBadge extends StatelessWidget {
+  const _VipBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.72),
+        ),
+      ),
+      child: Text(
+        'VIP 体验',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: const Color(0xFF5D7CFF),
+              fontWeight: FontWeight.w800,
+            ),
+      ),
+    );
+  }
+}
+
 class _ProfileTile extends StatelessWidget {
   const _ProfileTile({
     required this.icon,
@@ -235,21 +365,54 @@ class _ProfileTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: EdgeInsets.zero,
-      leading: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(14),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.28),
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Icon(icon, color: const Color(0xFF5D7CFF)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF647196),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF7080A8)),
+            ],
+          ),
         ),
-        child: Icon(icon, color: const Color(0xFF5D7CFF)),
       ),
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right_rounded),
     );
   }
 }
