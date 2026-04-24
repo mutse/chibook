@@ -237,6 +237,7 @@ class _SpeechBar extends ConsumerWidget {
     final excerpt = ref.watch(readerExcerptProvider(book.id));
     final chapter = ref.watch(currentEpubChapterProvider(book.id));
     final pdfChapter = ref.watch(currentPdfChapterProvider(book.id));
+    final autoSpeech = ref.watch(readerAutoSpeechProvider(book.id));
     final speechState = ref.watch(readerSpeechStateProvider);
     final speechText = chapter != null
         ? chapter.plainText
@@ -314,7 +315,9 @@ class _SpeechBar extends ConsumerWidget {
                   if (chapterLabel != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      chapterLabel,
+                      autoSpeech?.label?.isNotEmpty ?? false
+                          ? '当前朗读：${autoSpeech!.label}'
+                          : chapterLabel,
                       style: TextStyle(
                         color: colors.secondaryForeground,
                         fontSize: 12,
@@ -328,36 +331,25 @@ class _SpeechBar extends ConsumerWidget {
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
-              onPressed: () {
-                if (chapter != null) {
-                  controller.speakBookSegment(
-                    bookId: book.id,
-                    segmentId: segmentId,
-                    text: speechText,
+              onPressed: () async {
+                try {
+                  await controller.playAutoForCurrentBook(book);
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('自动朗读启动失败: $error')),
                   );
-                  return;
                 }
-                if (pdfChapter != null) {
-                  controller.speakBookSegment(
-                    bookId: book.id,
-                    segmentId: segmentId,
-                    text: speechText,
-                  );
-                  return;
-                }
-                controller.speakBookSegment(
-                  bookId: book.id,
-                  segmentId: 'default',
-                  text: speechText,
-                );
               },
               icon: const Icon(Icons.play_arrow),
               label: Text(
-                chapter != null
-                    ? '朗读本章'
-                    : pdfChapter != null
-                        ? '朗读当前章节'
-                        : '播放',
+                autoSpeech != null
+                    ? '重新自动朗读'
+                    : chapter != null
+                        ? '自动朗读本章'
+                        : pdfChapter != null
+                            ? '自动朗读'
+                            : '播放',
               ),
             ),
             const SizedBox(width: 4),
@@ -669,11 +661,12 @@ class _VoiceQuickSheet extends ConsumerStatefulWidget {
 class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   late final TextEditingController _customVoiceController;
   String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
+  String _selectedEdgeVoice = ReaderSpeechService.edgePreviewVoices.first;
   CloudTtsProvider _cloudProvider = CloudTtsProvider.openai;
   String _localVoiceId = '';
-  List<CloudVoiceOption> _elevenLabsVoices = const [];
-  bool _loadingElevenLabsVoices = false;
-  String? _elevenLabsVoicesError;
+  List<CloudVoiceOption> _edgeVoices = const [];
+  bool _loadingEdgeVoices = false;
+  String? _edgeVoicesError;
   bool _initialized = false;
 
   @override
@@ -734,6 +727,32 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
               const SizedBox(height: 20),
               _CloudProviderBadge(provider: _cloudProvider),
               const SizedBox(height: 16),
+              DropdownButtonFormField<CloudTtsProvider>(
+                initialValue: _cloudProvider,
+                decoration: const InputDecoration(labelText: '云端提供商'),
+                items: const [
+                  DropdownMenuItem(
+                    value: CloudTtsProvider.openai,
+                    child: Text('OpenAI'),
+                  ),
+                  DropdownMenuItem(
+                    value: CloudTtsProvider.microsoftEdge,
+                    child: Text('Microsoft Edge'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _cloudProvider = value;
+                    if (value == CloudTtsProvider.openai) {
+                      _customVoiceController.text = _selectedOpenAiVoice;
+                    } else {
+                      _customVoiceController.text = _selectedEdgeVoice;
+                    }
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
               if (_cloudProvider == CloudTtsProvider.openai) ...[
                 DropdownButtonFormField<String>(
                   initialValue: ReaderSpeechService.openAiVoices.contains(
@@ -758,29 +777,42 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                     });
                   },
                 ),
-                const SizedBox(height: 12),
               ],
-              TextField(
-                controller: _customVoiceController,
-                decoration: InputDecoration(
-                  labelText: _cloudProvider == CloudTtsProvider.openai
-                      ? '自定义 OpenAI Voice（可选）'
-                      : 'ElevenLabs Voice ID',
-                  hintText: _cloudProvider == CloudTtsProvider.openai
-                      ? '例如: alloy'
-                      : '例如: EXAVITQu4vr4xnSDxMaL',
+              if (_cloudProvider == CloudTtsProvider.microsoftEdge) ...[
+                DropdownButtonFormField<String>(
+                  initialValue: ReaderSpeechService.edgePreviewVoices.contains(
+                    _selectedEdgeVoice,
+                  )
+                      ? _selectedEdgeVoice
+                      : null,
+                  decoration: const InputDecoration(
+                    labelText: '常用 Microsoft Edge 声音',
+                  ),
+                  items: ReaderSpeechService.edgePreviewVoices
+                      .map(
+                        (voice) => DropdownMenuItem<String>(
+                          value: voice,
+                          child: Text(voice),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _selectedEdgeVoice = value;
+                      _customVoiceController.text = value;
+                    });
+                  },
                 ),
-              ),
-              if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _loadingElevenLabsVoices
+                        onPressed: _loadingEdgeVoices
                             ? null
-                            : () => _loadElevenLabsVoices(settings),
-                        icon: _loadingElevenLabsVoices
+                            : () => _loadEdgeVoices(settings),
+                        icon: _loadingEdgeVoices
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -790,38 +822,38 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                               )
                             : const Icon(Icons.cloud_download_outlined),
                         label: Text(
-                          _elevenLabsVoices.isEmpty
-                              ? '加载 ElevenLabs Voices'
-                              : '刷新 ElevenLabs Voices',
+                          _edgeVoices.isEmpty
+                              ? '加载 Microsoft Edge Voices'
+                              : '刷新 Microsoft Edge Voices',
                         ),
                       ),
                     ),
                   ],
                 ),
-                if (_elevenLabsVoicesError != null) ...[
+                if (_edgeVoicesError != null) ...[
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _elevenLabsVoicesError!,
+                      _edgeVoicesError!,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context).colorScheme.error,
                           ),
                     ),
                   ),
                 ],
-                if (_elevenLabsVoices.isNotEmpty) ...[
+                if (_edgeVoices.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    initialValue: _elevenLabsVoices.any(
+                    initialValue: _edgeVoices.any(
                       (voice) => voice.id == _customVoiceController.text.trim(),
                     )
                         ? _customVoiceController.text.trim()
                         : null,
                     decoration: const InputDecoration(
-                      labelText: '选择 ElevenLabs Voice',
+                      labelText: '选择 Microsoft Edge Voice',
                     ),
-                    items: _elevenLabsVoices
+                    items: _edgeVoices
                         .map(
                           (voice) => DropdownMenuItem<String>(
                             value: voice.id,
@@ -836,12 +868,25 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                     onChanged: (value) {
                       if (value == null) return;
                       setState(() {
+                        _selectedEdgeVoice = value;
                         _customVoiceController.text = value;
                       });
                     },
                   ),
                 ],
               ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _customVoiceController,
+                decoration: InputDecoration(
+                  labelText: _cloudProvider == CloudTtsProvider.openai
+                      ? '自定义 OpenAI Voice（可选）'
+                      : 'Microsoft Edge Voice',
+                  hintText: _cloudProvider == CloudTtsProvider.openai
+                      ? '例如: alloy'
+                      : '例如: zh-CN-XiaoxiaoNeural',
+                ),
+              ),
               const SizedBox(height: 12),
               localVoicesAsync.when(
                 data: (voices) {
@@ -885,12 +930,36 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                   final voice = _customVoiceController.text.trim();
                   final nextVoice = _cloudProvider == CloudTtsProvider.openai
                       ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
-                      : voice;
+                      : (voice.isEmpty ? _selectedEdgeVoice : voice);
+                  final normalizeHiddenProvider =
+                      settings.cloudProvider == CloudTtsProvider.elevenlabs;
+                  final providerChanged = normalizeHiddenProvider ||
+                      settings.cloudProvider != _cloudProvider;
                   final messenger = ScaffoldMessenger.of(context);
                   await ref
                       .read(speechSettingsControllerProvider.notifier)
                       .save(
                         settings.copyWith(
+                          cloudProvider: _cloudProvider,
+                          endpoint: providerChanged
+                              ? SpeechSettings.defaultEndpointFor(
+                                  _cloudProvider,
+                                )
+                              : SpeechSettings.normalizeEndpointFor(
+                                  settings.cloudProvider,
+                                  settings.endpoint,
+                                ),
+                          apiKey:
+                              _cloudProvider == CloudTtsProvider.microsoftEdge
+                                  ? ''
+                                  : (normalizeHiddenProvider
+                                      ? ''
+                                      : settings.apiKey),
+                          model: providerChanged
+                              ? SpeechSettings.defaultModelFor(
+                                  _cloudProvider,
+                                )
+                              : settings.model,
                           voice: nextVoice,
                           localVoiceId: _localVoiceId,
                         ),
@@ -918,53 +987,59 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   }
 
   void _applySettings(SpeechSettings settings) {
+    final isHiddenProvider =
+        settings.cloudProvider == CloudTtsProvider.elevenlabs;
+    final effectiveProvider =
+        isHiddenProvider ? CloudTtsProvider.openai : settings.cloudProvider;
+    final effectiveVoice = settings.voice.isEmpty
+        ? SpeechSettings.defaultVoiceFor(effectiveProvider)
+        : settings.voice;
+
     _initialized = true;
-    _cloudProvider = settings.cloudProvider;
+    _cloudProvider = effectiveProvider;
     _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.contains(
-      settings.voice,
+      effectiveVoice,
     )
-        ? settings.voice
+        ? effectiveVoice
         : ReaderSpeechService.openAiVoices.first;
-    _customVoiceController.text = settings.voice;
+    _selectedEdgeVoice = effectiveVoice;
+    _customVoiceController.text =
+        isHiddenProvider ? effectiveVoice : settings.voice;
     _localVoiceId = settings.localVoiceId;
     setState(() {});
   }
 
-  Future<void> _loadElevenLabsVoices(SpeechSettings settings) async {
-    final apiKey = settings.apiKey.trim();
-    if (apiKey.isEmpty) {
-      setState(() {
-        _elevenLabsVoicesError = '请先在设置页填写 ElevenLabs API Key。';
-        _elevenLabsVoices = const [];
-      });
-      return;
-    }
+  Future<void> _loadEdgeVoices(SpeechSettings settings) async {
+    final endpoint = _cloudProvider == settings.cloudProvider
+        ? SpeechSettings.normalizeEndpointFor(
+            settings.cloudProvider,
+            settings.endpoint,
+          )
+        : SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge);
 
     setState(() {
-      _loadingElevenLabsVoices = true;
-      _elevenLabsVoicesError = null;
+      _loadingEdgeVoices = true;
+      _edgeVoicesError = null;
     });
 
     try {
-      final voices =
-          await ref.read(readerSpeechServiceProvider).listElevenLabsVoices(
-                apiKey: apiKey,
-                endpoint: settings.endpoint,
-              );
+      final voices = await ref.read(readerSpeechServiceProvider).listEdgeVoices(
+            endpoint: endpoint,
+          );
       if (!mounted) return;
       setState(() {
-        _elevenLabsVoices = voices;
+        _edgeVoices = voices;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _elevenLabsVoices = const [];
-        _elevenLabsVoicesError = '加载 ElevenLabs voices 失败: $error';
+        _edgeVoices = const [];
+        _edgeVoicesError = '加载 Microsoft Edge voices 失败: $error';
       });
     } finally {
       if (mounted) {
         setState(() {
-          _loadingElevenLabsVoices = false;
+          _loadingEdgeVoices = false;
         });
       }
     }
@@ -980,6 +1055,7 @@ class _CloudProviderBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = switch (provider) {
       CloudTtsProvider.openai => '当前云端提供商: OpenAI',
+      CloudTtsProvider.microsoftEdge => '当前云端提供商: Microsoft Edge',
       CloudTtsProvider.elevenlabs => '当前云端提供商: ElevenLabs',
     };
 

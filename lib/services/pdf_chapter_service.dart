@@ -1,12 +1,14 @@
 import 'dart:io';
 
 import 'package:chibook/data/models/pdf_chapter_data.dart';
+import 'package:chibook/data/models/pdf_page_data.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 class PdfChapterService {
   final Map<String, _PdfChapterMeta> _metaCache = {};
   final Map<String, PdfChapterData> _chapterCache = {};
+  final Map<String, PdfPageData> _pageCache = {};
 
   Future<PdfChapterData> resolveCurrentChapter({
     required String filePath,
@@ -43,6 +45,39 @@ class PdfChapterService {
           ),
         )
         .toList(growable: false);
+  }
+
+  Future<int> pageCount(String filePath) async {
+    final meta = await _loadMeta(filePath);
+    return meta.pageCount;
+  }
+
+  Future<PdfPageData> extractPage({
+    required String filePath,
+    required int pageNumber,
+  }) async {
+    final meta = await _loadMeta(filePath);
+    final page = pageNumber.clamp(1, meta.pageCount).toInt();
+    final cacheKey = '$filePath|page|$page';
+    final cached = _pageCache[cacheKey];
+    if (cached != null) return cached;
+
+    final bytes = await File(filePath).readAsBytes();
+    final document = PdfDocument(inputBytes: bytes);
+    try {
+      final text = PdfTextExtractor(document).extractText(
+        startPageIndex: page - 1,
+        endPageIndex: page - 1,
+      );
+      final pageData = PdfPageData(
+        pageNumber: page,
+        text: _normalizeText(text),
+      );
+      _pageCache[cacheKey] = pageData;
+      return pageData;
+    } finally {
+      document.dispose();
+    }
   }
 
   Future<_PdfChapterMeta> _loadMeta(String filePath) async {
