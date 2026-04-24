@@ -1,9 +1,11 @@
+import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
-import 'package:chibook/features/bookshelf/presentation/widgets/book_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+enum _ShelfFilter { all, reading, finished, epub, pdf }
 
 class BookshelfScreen extends ConsumerWidget {
   const BookshelfScreen({
@@ -18,37 +20,25 @@ class BookshelfScreen extends ConsumerWidget {
     final booksAsync = ref.watch(bookshelfControllerProvider);
 
     return Scaffold(
-      appBar: showAppBar
-          ? AppBar(
-              title: const Text('书架'),
-              actions: [
-                IconButton(
-                  onPressed: () => context.push('/settings'),
-                  icon: const Icon(Icons.tune),
-                  tooltip: 'Speech settings',
-                ),
-                IconButton(
-                  onPressed: () async {
-                    final book = await ref
-                        .read(bookshelfControllerProvider.notifier)
-                        .importBook();
-                    if (book != null && context.mounted) {
-                      context.push('/reader/${book.id}');
-                    }
-                  },
-                  icon: const Icon(Icons.add_circle_outline),
-                  tooltip: 'Import book',
-                ),
-              ],
-            )
-          : null,
-      body: SafeArea(
-        top: !showAppBar,
-        child: booksAsync.when(
-          data: (books) => _BookshelfBody(books: books),
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, stack) => Center(
-            child: Text('Failed to load bookshelf: $error'),
+      backgroundColor: Colors.transparent,
+      appBar: showAppBar ? AppBar(title: const Text('书架')) : null,
+      body: LiquidBackground(
+        child: SafeArea(
+          top: !showAppBar,
+          child: booksAsync.when(
+            data: (books) => _BookshelfBody(
+              books: books,
+              onImport: () async {
+                final book = await ref
+                    .read(bookshelfControllerProvider.notifier)
+                    .importBook();
+                if (book != null && context.mounted) {
+                  context.push('/book/${book.id}');
+                }
+              },
+            ),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, stack) => Center(child: Text('加载书架失败: $error')),
           ),
         ),
       ),
@@ -56,20 +46,27 @@ class BookshelfScreen extends ConsumerWidget {
   }
 }
 
-class _BookshelfBody extends StatelessWidget {
+class _BookshelfBody extends StatefulWidget {
   const _BookshelfBody({
     required this.books,
+    required this.onImport,
   });
 
   final List<Book> books;
+  final VoidCallback onImport;
+
+  @override
+  State<_BookshelfBody> createState() => _BookshelfBodyState();
+}
+
+class _BookshelfBodyState extends State<_BookshelfBody> {
+  _ShelfFilter _selectedFilter = _ShelfFilter.all;
+  bool _gridMode = false;
 
   @override
   Widget build(BuildContext context) {
-    final recentBooks = [...books]..sort((a, b) {
-        final aTime = a.lastReadAt ?? a.importedAt;
-        final bTime = b.lastReadAt ?? b.importedAt;
-        return bTime.compareTo(aTime);
-      });
+    final recentBooks = sortBooksByRecent(widget.books);
+    final filteredBooks = recentBooks.where(_matchesFilter).toList();
     final activeBooks = recentBooks.where((book) => book.progress > 0).toList();
     final spotlight = activeBooks.isNotEmpty ? activeBooks.first : null;
 
@@ -82,262 +79,309 @@ class _BookshelfBody extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '书架',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '我的书架',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '把在读、收藏和最近加入的书放到更顺手的位置。',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
                       ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '把最近在读和收藏的书放在最顺手的位置。',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: const Color(0xFF5D645F),
+                    ),
+                    IconButton(
+                      onPressed: () => setState(() => _gridMode = !_gridMode),
+                      icon: Icon(
+                        _gridMode
+                            ? Icons.view_agenda_outlined
+                            : Icons.grid_view_rounded,
                       ),
+                    ),
+                    IconButton(
+                      onPressed: widget.onImport,
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 18),
-                _ShelfSummary(
-                  booksCount: books.length,
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SummaryCard(
+                        label: '全部',
+                        value: '${widget.books.length} 本',
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _SummaryCard(
+                        label: '在听',
+                        value: '${activeBooks.length} 本',
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _SummaryCard(
+                        label: '已听完',
+                        value:
+                            '${widget.books.where((book) => book.progress >= 1).length} 本',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const AppSearchBar(
+                  hint: '搜索书名 / 作者 / 关键词',
+                  trailing: Icon(
+                    Icons.tune_rounded,
+                    color: Color(0xFF6F7EA8),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final filter in _ShelfFilter.values) ...[
+                        GestureDetector(
+                          onTap: () => setState(() => _selectedFilter = filter),
+                          child: TagChip(
+                            label: _filterLabel(filter),
+                            active: _selectedFilter == filter,
+                          ),
+                        ),
+                        if (filter != _ShelfFilter.values.last)
+                          const SizedBox(width: 10),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _ShelfHeroCard(
+                  booksCount: widget.books.length,
                   activeCount: activeBooks.length,
+                  finishedCount:
+                      widget.books.where((book) => book.progress >= 1).length,
                 ),
-                const SizedBox(height: 18),
-                const _ShelfFilters(),
               ],
             ),
           ),
         ),
-        if (spotlight != null)
+        if (spotlight != null && _selectedFilter == _ShelfFilter.all)
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
-              child: _ContinueReadingBanner(book: spotlight),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: _ContinueListeningBanner(book: spotlight),
             ),
           ),
-        if (books.isEmpty)
-          const SliverToBoxAdapter(
+        if (filteredBooks.isEmpty)
+          SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: _EmptyShelf(),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+              child: LiquidGlassCard(
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.auto_stories_outlined,
+                      size: 52,
+                      color: Color(0xFF5D7CFF),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      _emptyTitle(),
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _emptyHint(),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(height: 1.6),
+                    ),
+                    const SizedBox(height: 18),
+                    FilledButton(
+                      onPressed: widget.onImport,
+                      child: const Text('导入书籍'),
+                    ),
+                  ],
+                ),
+              ),
             ),
           )
-        else ...[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-              child: Row(
-                children: [
-                  Text(
-                    '全部藏书',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '按最近阅读排序',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF69706B),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        else if (_gridMode)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
             sliver: SliverGrid(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final book = recentBooks[index];
-                return BookCard(
-                  book: book,
-                  onTap: () => context.push('/reader/${book.id}'),
-                );
-              }, childCount: recentBooks.length),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => _ShelfGridCard(book: filteredBooks[index]),
+                childCount: filteredBooks.length,
+              ),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                childAspectRatio: 0.67,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
+                childAspectRatio: 0.70,
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
               ),
             ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _ShelfSummary extends StatelessWidget {
-  const _ShelfSummary({
-    required this.booksCount,
-    required this.activeCount,
-  });
-
-  final int booksCount;
-  final int activeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _SummaryCard(
-            label: '藏书',
-            value: '$booksCount',
-            hint: '本',
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryCard(
-            label: '在读',
-            value: '$activeCount',
-            hint: '本',
-          ),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: _SummaryCard(
-            label: '习惯',
-            value: '夜读',
-            hint: '更沉浸',
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ShelfFilters extends StatelessWidget {
-  const _ShelfFilters();
-
-  @override
-  Widget build(BuildContext context) {
-    final filters = <String>['全部', '在读', '未读', 'EPUB', 'PDF'];
-
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: filters.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          final active = index == 0;
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-            decoration: BoxDecoration(
-              color: active
-                  ? const Color(0xFF18211D)
-                  : Colors.white.withValues(alpha: 0.86),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              filters[index],
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: active ? Colors.white : const Color(0xFF58605B),
-                    fontWeight: FontWeight.w700,
+          )
+        else
+          SliverList.builder(
+            itemCount: filteredBooks.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Text(
+                    '共 ${filteredBooks.length} 本',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
-            ),
-          );
-        },
-      ),
+                );
+              }
+              final book = filteredBooks[index - 1];
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: _ShelfRow(book: book),
+              );
+            },
+          ),
+      ],
     );
+  }
+
+  bool _matchesFilter(Book book) {
+    return switch (_selectedFilter) {
+      _ShelfFilter.all => true,
+      _ShelfFilter.reading => book.progress > 0 && book.progress < 1,
+      _ShelfFilter.finished => book.progress >= 1,
+      _ShelfFilter.epub => book.format == BookFormat.epub,
+      _ShelfFilter.pdf => book.format == BookFormat.pdf,
+    };
+  }
+
+  String _filterLabel(_ShelfFilter filter) {
+    return switch (filter) {
+      _ShelfFilter.all => '全部',
+      _ShelfFilter.reading => '在听',
+      _ShelfFilter.finished => '已听完',
+      _ShelfFilter.epub => 'EPUB',
+      _ShelfFilter.pdf => 'PDF',
+    };
+  }
+
+  String _emptyTitle() {
+    return switch (_selectedFilter) {
+      _ShelfFilter.all => '你的书架还是空的',
+      _ShelfFilter.reading => '还没有在听中的书',
+      _ShelfFilter.finished => '还没有听完的书',
+      _ShelfFilter.epub => '还没有 EPUB 书籍',
+      _ShelfFilter.pdf => '还没有 PDF 书籍',
+    };
+  }
+
+  String _emptyHint() {
+    return switch (_selectedFilter) {
+      _ShelfFilter.all => '导入 EPUB 或 PDF 后，首页、播放页和详情页都会自动跟着充实起来。',
+      _ShelfFilter.reading => '先从首页或详情页点一次“立即收听”，这里就会变成你的在听列表。',
+      _ShelfFilter.finished => '等一本书完整听完后，这里会自然沉淀成你的已完成书单。',
+      _ShelfFilter.epub => '导入一本 EPUB 后，这里会更适合做章节式边听边读。',
+      _ShelfFilter.pdf => '导入一本 PDF 后，这里会支持按页与目录继续收听。',
+    };
   }
 }
 
-class _ContinueReadingBanner extends StatelessWidget {
-  const _ContinueReadingBanner({
-    required this.book,
-  });
+class _ContinueListeningBanner extends StatelessWidget {
+  const _ContinueListeningBanner({required this.book});
 
   final Book book;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => context.push('/reader/${book.id}'),
-      borderRadius: BorderRadius.circular(28),
-      child: Ink(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(28),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 74,
-                height: 104,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    gradient: LinearGradient(colors: _coverColors(book)),
-                  ),
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 10,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.12),
-                            borderRadius: const BorderRadius.horizontal(
-                              left: Radius.circular(18),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '继续阅读',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF64706A),
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      book.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${book.author} · 已读 ${_percent(book.progress)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF64706A),
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: book.progress.clamp(0.02, 1.0),
-                        minHeight: 6,
-                        backgroundColor: const Color(0xFFE5E1D8),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Icon(Icons.chevron_right_rounded),
-            ],
+    return LiquidGlassCard(
+      radius: 30,
+      colors: const [Color(0xE0FFFFFF), Color(0xA9DDF7FF)],
+      onTap: () => context.push('/book/${book.id}'),
+      child: Row(
+        children: [
+          BookCoverArt(
+            book: book,
+            width: 92,
+            height: 128,
+            radius: 22,
           ),
-        ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '继续收听',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: const Color(0xFF5D7CFF),
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  book.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${book.author} · ${progressLabel(book)}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: book.progress.clamp(0.04, 1.0),
+                    minHeight: 6,
+                    backgroundColor: const Color(0xFFDCE5FF),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const WaveformLine(
+                  color: Color(0xFF5D7CFF),
+                  barCount: 14,
+                  barWidth: 2.4,
+                  minHeight: 4,
+                  maxHeight: 12,
+                  spacing: 2.4,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF5D7CFF)),
+        ],
       ),
     );
   }
@@ -347,98 +391,307 @@ class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.label,
     required this.value,
-    required this.hint,
   });
 
   final String label;
   final String value;
-  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      radius: 22,
+      colors: const [Color(0xE8FFFFFF), Color(0xAEEAF5FF)],
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShelfHeroCard extends StatelessWidget {
+  const _ShelfHeroCard({
+    required this.booksCount,
+    required this.activeCount,
+    required this.finishedCount,
+  });
+
+  final int booksCount;
+  final int activeCount;
+  final int finishedCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      radius: 32,
+      colors: const [Color(0xFFE8F0FF), Color(0xFFBFD7FF)],
+      child: Stack(
+        children: [
+          Positioned(
+            right: -16,
+            top: -18,
+            child: Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.22),
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '我的听书空间',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: const Color(0xFF4E67D6),
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '持续积累中',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '把值得反复听的内容，放到最顺手的位置。',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '书架不只是列表，更像你的长期内容仓库：想继续听的、已经听完的、还没开始的，都能一眼分层。',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      height: 1.6,
+                    ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _HeroMetric(
+                      label: '全部藏书',
+                      value: '$booksCount',
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _HeroMetric(
+                      label: '正在听',
+                      value: '$activeCount',
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _HeroMetric(
+                      label: '已完成',
+                      value: '$finishedCount',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const WaveformLine(
+                color: Color(0xFF5D7CFF),
+                barCount: 18,
+                barWidth: 2.6,
+                minHeight: 4,
+                maxHeight: 14,
+                spacing: 2.8,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroMetric extends StatelessWidget {
+  const _HeroMetric({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.white.withValues(alpha: 0.44),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 8),
           Text(
-            label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF69706B),
+            value,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
           ),
-          const SizedBox(height: 10),
-          RichText(
-            text: TextSpan(
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: const Color(0xFF1A211D),
-                    fontWeight: FontWeight.w800,
-                  ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShelfRow extends StatelessWidget {
+  const _ShelfRow({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      radius: 28,
+      colors: const [Color(0xE5FFFFFF), Color(0xAFEDF6FF)],
+      onTap: () => context.push('/book/${book.id}'),
+      child: Row(
+        children: [
+          BookCoverArt(
+            book: book,
+            width: 82,
+            height: 116,
+            radius: 20,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextSpan(text: value),
-                TextSpan(
-                  text: '  $hint',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF69706B),
+                Text(
+                  book.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${book.author} · ${pseudoCategoryForBook(book)}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value:
+                        book.progress <= 0 ? 0.04 : book.progress.clamp(0, 1),
+                    minHeight: 6,
+                    backgroundColor: const Color(0xFFDCE5FF),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${progressLabel(book)} · ${recencyLabel(book.lastReadAt ?? book.importedAt)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                const WaveformLine(
+                  color: Color(0xFF5D7CFF),
+                  barCount: 12,
+                  barWidth: 2.2,
+                  minHeight: 4,
+                  maxHeight: 10,
+                  spacing: 2.2,
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          const Icon(Icons.chevron_right_rounded, color: Color(0xFF7280A7)),
         ],
       ),
     );
   }
 }
 
-class _EmptyShelf extends StatelessWidget {
-  const _EmptyShelf();
+class _ShelfGridCard extends StatelessWidget {
+  const _ShelfGridCard({required this.book});
+
+  final Book book;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(28),
-      ),
+    return LiquidGlassCard(
+      radius: 28,
+      colors: const [Color(0xE8FFFFFF), Color(0xA7E7F4FF)],
+      onTap: () => context.push('/book/${book.id}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Center(
+            child: BookCoverArt(
+              book: book,
+              width: 132,
+              height: 174,
+              radius: 24,
+            ),
+          ),
+          const SizedBox(height: 14),
           Text(
-            '你的书架还是空的',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+            book.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           Text(
-            '导入 EPUB 或 PDF 后，就可以开始阅读、记录进度，并使用 AI 语音朗读。',
-            style: Theme.of(context).textTheme.bodyLarge,
+            book.author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: null,
-            icon: const Icon(Icons.upload_file_outlined),
-            label: const Text('请从阅读页右下角导入图书'),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: book.progress.clamp(0.04, 1.0),
+              minHeight: 6,
+              backgroundColor: const Color(0xFFDCE5FF),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            progressLabel(book),
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
       ),
     );
   }
-}
-
-List<Color> _coverColors(Book book) {
-  return book.format == BookFormat.epub
-      ? const [Color(0xFF215447), Color(0xFFA6CFBE)]
-      : const [Color(0xFF445789), Color(0xFFD1DCF7)];
-}
-
-String _percent(double progress) {
-  final normalized = progress.clamp(0, 1);
-  return '${(normalized * 100).round()}%';
 }
