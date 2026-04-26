@@ -266,10 +266,17 @@ class _HomeBody extends ConsumerWidget {
   }
 
   Future<void> _importBook(BuildContext context, WidgetRef ref) async {
-    final book =
-        await ref.read(bookshelfControllerProvider.notifier).importBook();
-    if (book != null && context.mounted) {
-      context.push('/book/${book.id}');
+    try {
+      final book =
+          await ref.read(bookshelfControllerProvider.notifier).importBook();
+      if (book != null && context.mounted) {
+        context.push('/book/${book.id}');
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败，请重试: $error')),
+      );
     }
   }
 }
@@ -277,7 +284,7 @@ class _HomeBody extends ConsumerWidget {
 class _HomeHeader extends StatelessWidget {
   const _HomeHeader({required this.onImport});
 
-  final VoidCallback onImport;
+  final Future<void> Function() onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -317,7 +324,7 @@ class _HomeHeader extends StatelessWidget {
           ),
         ),
         IconButton(
-          onPressed: onImport,
+          onPressed: () async => onImport(),
           icon: const Icon(Icons.add_rounded),
         ),
       ],
@@ -335,7 +342,7 @@ class _HeroCard extends StatelessWidget {
 
   final Book? book;
   final int booksCount;
-  final VoidCallback onImport;
+  final Future<void> Function() onImport;
   final VoidCallback? onListen;
 
   @override
@@ -441,7 +448,7 @@ class _HeroCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     OutlinedButton(
-                      onPressed: onImport,
+                      onPressed: () async => onImport(),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white,
                         side: BorderSide(
@@ -501,7 +508,7 @@ class _QuickActions extends StatelessWidget {
     required this.featured,
   });
 
-  final VoidCallback onImport;
+  final Future<void> Function() onImport;
   final Book? featured;
 
   @override
@@ -523,7 +530,7 @@ class _QuickActions extends StatelessWidget {
       ),
       ('发现', Icons.explore_outlined, () => context.go('/discover')),
       ('书架', Icons.menu_book_outlined, () => context.go('/bookshelf')),
-      ('导入', Icons.add_box_outlined, onImport),
+      ('导入', Icons.add_box_outlined, () async => onImport()),
     ];
 
     return SizedBox(

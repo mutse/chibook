@@ -28,14 +28,7 @@ class BookshelfScreen extends ConsumerWidget {
           child: booksAsync.when(
             data: (books) => _BookshelfBody(
               books: books,
-              onImport: () async {
-                final book = await ref
-                    .read(bookshelfControllerProvider.notifier)
-                    .importBook();
-                if (book != null && context.mounted) {
-                  context.push('/book/${book.id}');
-                }
-              },
+              onImport: () => _importBook(context, ref),
             ),
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (error, stack) => Center(child: Text('加载书架失败: $error')),
@@ -43,6 +36,21 @@ class BookshelfScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _importBook(BuildContext context, WidgetRef ref) async {
+    try {
+      final book =
+          await ref.read(bookshelfControllerProvider.notifier).importBook();
+      if (book != null && context.mounted) {
+        context.push('/book/${book.id}');
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败，请重试: $error')),
+      );
+    }
   }
 }
 
@@ -53,7 +61,7 @@ class _BookshelfBody extends StatefulWidget {
   });
 
   final List<Book> books;
-  final VoidCallback onImport;
+  final Future<void> Function() onImport;
 
   @override
   State<_BookshelfBody> createState() => _BookshelfBodyState();
@@ -109,7 +117,7 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                       ),
                     ),
                     IconButton(
-                      onPressed: widget.onImport,
+                      onPressed: () async => widget.onImport(),
                       icon: const Icon(Icons.add_circle_outline_rounded),
                     ),
                   ],
@@ -216,7 +224,7 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                     ),
                     const SizedBox(height: 18),
                     FilledButton(
-                      onPressed: widget.onImport,
+                      onPressed: () async => widget.onImport(),
                       child: const Text('导入书籍'),
                     ),
                   ],
