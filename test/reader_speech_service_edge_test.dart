@@ -7,7 +7,8 @@ import 'package:http/http.dart' as http;
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('edge voices request includes security query params and muid cookie', () async {
+  test('edge voices request includes security query params and muid cookie',
+      () async {
     final client = _RecordingClient(
       handler: (request) async {
         return http.Response(
@@ -57,6 +58,16 @@ void main() {
       request.headers['cookie'],
       matches(RegExp(r'^muid=[A-F0-9]{32};$')),
     );
+    expect(
+      request.headers['user-agent'],
+      contains('Windows NT 10.0; Win64; x64'),
+    );
+    expect(
+      request.headers['sec-ch-ua'],
+      contains('"Microsoft Edge"'),
+    );
+    expect(request.headers['sec-fetch-mode'], 'cors');
+    expect(request.headers['accept'], '*/*');
   });
 }
 

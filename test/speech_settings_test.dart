@@ -57,6 +57,54 @@ void main() {
     );
   });
 
+  test('microsoft edge voices list endpoint normalizes to websocket endpoint',
+      () {
+    final endpoint = SpeechSettings.normalizeEndpointFor(
+      CloudTtsProvider.microsoftEdge,
+      'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=test',
+    );
+
+    expect(
+      endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+    );
+  });
+
+  test('microsoft edge voice normalizes azure display name', () {
+    final voice = SpeechSettings.normalizeVoiceFor(
+      CloudTtsProvider.microsoftEdge,
+      'Microsoft Server Speech Text to Speech Voice (en-US, JennyNeural)',
+    );
+
+    expect(voice, 'en-US-JennyNeural');
+  });
+
+  test('microsoft edge voice falls back when another provider voice is saved',
+      () {
+    final voice = SpeechSettings.normalizeVoiceFor(
+      CloudTtsProvider.microsoftEdge,
+      'alloy',
+    );
+
+    expect(
+      voice,
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+    );
+  });
+
+  test('microsoft edge model falls back when another provider model is saved',
+      () {
+    final model = SpeechSettings.normalizeModelFor(
+      CloudTtsProvider.microsoftEdge,
+      'gpt-4o-mini-tts',
+    );
+
+    expect(
+      model,
+      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+    );
+  });
+
   test('service load uses provider-specific defaults for microsoft edge',
       () async {
     SharedPreferences.setMockInitialValues({
@@ -80,5 +128,31 @@ void main() {
       SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
     );
     expect(settings.apiKey, isEmpty);
+  });
+
+  test('service load repairs invalid microsoft edge model and voice', () async {
+    SharedPreferences.setMockInitialValues({
+      SpeechSettingsStorageKeys.cloudProvider:
+          CloudTtsProvider.microsoftEdge.name,
+      SpeechSettingsStorageKeys.model: 'gpt-4o-mini-tts',
+      SpeechSettingsStorageKeys.voice: 'alloy',
+      SpeechSettingsStorageKeys.endpoint:
+          'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
+    });
+
+    final settings = await const SpeechSettingsService().load();
+
+    expect(
+      settings.endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(
+      settings.model,
+      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+    );
+    expect(
+      settings.voice,
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+    );
   });
 }
