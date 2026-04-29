@@ -5,6 +5,7 @@ import 'package:chibook/services/epub_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:uuid/uuid.dart';
 
 class FileImportService {
@@ -57,6 +58,16 @@ class FileImportService {
             author = metaAuthor.trim();
           }
         }
+      } else if (format == BookFormat.pdf) {
+        final metadata = await _loadPdfMetadata(targetPath);
+        if (metadata case (final metaTitle, final metaAuthor)) {
+          if (metaTitle.trim().isNotEmpty) {
+            title = metaTitle.trim();
+          }
+          if (metaAuthor.trim().isNotEmpty) {
+            author = metaAuthor.trim();
+          }
+        }
       }
 
       return Book(
@@ -79,6 +90,23 @@ class FileImportService {
     } catch (_) {
       // Only supported on mobile platforms. Import should still succeed
       // when cache cleanup is unavailable.
+    }
+  }
+
+  Future<(String, String)?> _loadPdfMetadata(String filePath) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final document = PdfDocument(inputBytes: bytes);
+      try {
+        final info = document.documentInformation;
+        final title = info.title.replaceAll('\u0000', '').trim();
+        final author = info.author.replaceAll('\u0000', '').trim();
+        return (title, author);
+      } finally {
+        document.dispose();
+      }
+    } catch (_) {
+      return null;
     }
   }
 }

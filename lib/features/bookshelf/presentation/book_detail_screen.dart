@@ -481,6 +481,23 @@ class _BookToc extends ConsumerWidget {
                 (chapter) => _TocData(
                   title: chapter.title,
                   trailing: '第 ${chapter.index + 1} 章',
+                  onPlay: (context) async {
+                    ref
+                        .read(currentEpubChapterProvider(book.id).notifier)
+                        .state = chapter;
+                    await ref
+                        .read(readerControllerProvider)
+                        .playAutoForCurrentBook(book);
+                    if (!context.mounted) return;
+                    context.go('/player');
+                  },
+                  onOpen: (context) async {
+                    ref
+                        .read(currentEpubChapterProvider(book.id).notifier)
+                        .state = chapter;
+                    if (!context.mounted) return;
+                    context.push('/reader/${book.id}');
+                  },
                 ),
               )
               .toList(),
@@ -503,7 +520,7 @@ class _BookToc extends ConsumerWidget {
   }
 }
 
-class _PdfTocContent extends StatelessWidget {
+class _PdfTocContent extends ConsumerWidget {
   const _PdfTocContent({
     required this.book,
     required this.toc,
@@ -513,7 +530,7 @@ class _PdfTocContent extends StatelessWidget {
   final List<PdfChapterTocItem> toc;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (toc.isEmpty) {
       return LiquidGlassCard(
         child: Column(
@@ -527,7 +544,7 @@ class _PdfTocContent extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              '这个 PDF 没有可识别的书签目录，阅读器里会按页继续播放。',
+              '这个 PDF 暂时没有识别到章节目录，阅读器里会按页继续播放。',
               style: Theme.of(context).textTheme.bodyLarge,
             ),
           ],
@@ -544,6 +561,25 @@ class _PdfTocContent extends StatelessWidget {
               trailing: item.isSinglePage
                   ? '第 ${item.startPage} 页'
                   : '${item.startPage}-${item.endPage} 页',
+              onPlay: (context) async {
+                ref.read(currentPdfPageProvider(book.id).notifier).state =
+                    item.startPage;
+                ref.read(requestedPdfPageProvider(book.id).notifier).state =
+                    item.startPage;
+                await ref
+                    .read(readerControllerProvider)
+                    .playAutoForCurrentBook(book);
+                if (!context.mounted) return;
+                context.go('/player');
+              },
+              onOpen: (context) async {
+                ref.read(currentPdfPageProvider(book.id).notifier).state =
+                    item.startPage;
+                ref.read(requestedPdfPageProvider(book.id).notifier).state =
+                    item.startPage;
+                if (!context.mounted) return;
+                context.push('/reader/${book.id}');
+              },
             ),
           )
           .toList(),
@@ -604,7 +640,8 @@ class _TocCard extends StatelessWidget {
                 _TocRow(
                   title: rows[i].title,
                   trailing: rows[i].trailing,
-                  onTap: () => context.push('/reader/${book.id}'),
+                  onPlay: () => rows[i].onPlay(context),
+                  onOpen: () => rows[i].onOpen(context),
                 ),
                 if (i != rows.length - 1) const Divider(height: 1),
               ],
@@ -620,21 +657,106 @@ class _TocRow extends StatelessWidget {
   const _TocRow({
     required this.title,
     required this.trailing,
-    required this.onTap,
+    required this.onPlay,
+    required this.onOpen,
   });
 
   final String title;
   final String trailing;
-  final VoidCallback onTap;
+  final VoidCallback onPlay;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: EdgeInsets.zero,
-      title: Text(title),
-      subtitle: Text(trailing),
-      trailing: const Icon(Icons.chevron_right_rounded),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  trailing,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF6F7EA8),
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _TocActionButton(
+                label: '播放',
+                icon: Icons.play_arrow_rounded,
+                filled: true,
+                onPressed: onPlay,
+              ),
+              const SizedBox(height: 8),
+              _TocActionButton(
+                label: '原文',
+                icon: Icons.menu_book_rounded,
+                onPressed: onOpen,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TocActionButton extends StatelessWidget {
+  const _TocActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = filled ? Colors.white : const Color(0xFF4968E8);
+    final background = filled ? const Color(0xFF5D7CFF) : Colors.white;
+    final borderColor =
+        filled ? const Color(0xFF5D7CFF) : const Color(0xFFD9E4FF);
+
+    return SizedBox(
+      width: 92,
+      height: 36,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: foreground,
+          backgroundColor: background,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+            side: BorderSide(color: borderColor),
+          ),
+        ),
+        icon: Icon(icon, size: 18),
+        label: Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
     );
   }
 }
@@ -778,8 +900,12 @@ class _TocData {
   const _TocData({
     required this.title,
     required this.trailing,
+    required this.onPlay,
+    required this.onOpen,
   });
 
   final String title;
   final String trailing;
+  final Future<void> Function(BuildContext context) onPlay;
+  final Future<void> Function(BuildContext context) onOpen;
 }

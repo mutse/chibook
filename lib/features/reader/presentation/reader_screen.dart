@@ -595,7 +595,7 @@ class _PdfChapterSheet extends ConsumerWidget {
           if (items.isEmpty) {
             return const Padding(
               padding: EdgeInsets.all(24),
-              child: Text('当前 PDF 没有可用目录，将按当前页朗读。'),
+              child: Text('当前 PDF 暂时没有识别到章节目录，将按当前页朗读。'),
             );
           }
           return ListView(

@@ -839,7 +839,7 @@ class _PdfChapterSheet extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '这个 PDF 没有书签目录，建议先打开原文后按页继续播放。',
+                '这个 PDF 暂时没有识别到章节目录，建议先打开原文后按页继续播放。',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
