@@ -341,7 +341,7 @@ class ReaderSpeechService {
           prefs.getString(SpeechSettingsStorageKeys.cloudProvider) ??
               prefs.getString(SpeechSettingsStorageKeys.legacyCloudProvider),
         ) ??
-        CloudTtsProvider.openai;
+        CloudTtsProvider.microsoftEdge;
     return SpeechConfig(
       providerMode: _parseMode(providerModeName),
       cloudProvider: cloudProvider,
@@ -425,17 +425,13 @@ class ReaderSpeechService {
     String text,
     SpeechConfig config,
   ) async {
-    final voiceId = config.voice.trim();
+    final voiceId = _resolveElevenLabsVoiceId(config);
     if (voiceId.isEmpty) {
       throw Exception('ElevenLabs voice ID is required.');
     }
 
-    final baseEndpoint = config.endpoint.trim().isEmpty
-        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs)
-        : config.endpoint.trim();
-    final endpoint = baseEndpoint.contains('{voice_id}')
-        ? baseEndpoint.replaceAll('{voice_id}', voiceId)
-        : '$baseEndpoint/$voiceId';
+    final baseEndpoint = _resolveElevenLabsEndpoint(config.endpoint);
+    final endpoint = '$baseEndpoint/$voiceId';
 
     final uri = Uri.parse(endpoint).replace(
       queryParameters: {
@@ -487,11 +483,45 @@ class ReaderSpeechService {
   }
 
   Uri _elevenLabsVoicesUri(String endpoint) {
-    final baseEndpoint = endpoint.trim().isEmpty
-        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs)
-        : endpoint.trim();
+    final baseEndpoint = _resolveElevenLabsEndpoint(endpoint);
     final uri = Uri.parse(baseEndpoint);
     return uri.replace(path: '/v2/voices', queryParameters: null);
+  }
+
+  String _resolveElevenLabsEndpoint(String endpoint) {
+    return SpeechSettings.normalizeEndpointFor(
+      CloudTtsProvider.elevenlabs,
+      endpoint,
+    );
+  }
+
+  String _resolveElevenLabsVoiceId(SpeechConfig config) {
+    final configuredVoice = config.voice.trim();
+    if (configuredVoice.isNotEmpty) {
+      return configuredVoice;
+    }
+
+    final endpoint = config.endpoint.trim();
+    if (endpoint.isEmpty) {
+      return '';
+    }
+
+    final uri = Uri.tryParse(endpoint);
+    if (uri == null) {
+      return '';
+    }
+
+    final segments = uri.pathSegments;
+    final speechIndex = segments.indexOf('text-to-speech');
+    if (speechIndex == -1 || speechIndex + 1 >= segments.length) {
+      return '';
+    }
+
+    final voiceId = segments[speechIndex + 1].trim();
+    if (voiceId.isEmpty || voiceId == '{voice_id}') {
+      return '';
+    }
+    return voiceId;
   }
 
   String _edgeRate(double speed) {
@@ -517,7 +547,7 @@ class ReaderSpeechService {
       '',
     );
     value = value.replaceFirst(
-      RegExp(r'^xi-api-key\s*:\s*', caseSensitive: false),
+      RegExp(r'^xi-api-key\b\s*:?\s*', caseSensitive: false),
       '',
     );
     return value.trim();

@@ -28,10 +28,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   double _localSpeechRate = 0.45;
   String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
   String _selectedEdgeVoice = ReaderSpeechService.edgePreviewVoices.first;
+  String _selectedElevenLabsVoice = '';
   String _localVoiceId = '';
   List<CloudVoiceOption> _edgeVoices = const [];
+  List<CloudVoiceOption> _elevenLabsVoices = const [];
   bool _loadingEdgeVoices = false;
+  bool _loadingElevenLabsVoices = false;
   String? _edgeVoicesError;
+  String? _elevenLabsVoicesError;
   bool _initialized = false;
 
   @override
@@ -192,8 +196,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (_cloudProvider ==
                                       CloudTtsProvider.openai) {
                                     _selectedOpenAiVoice = voice;
-                                  } else {
+                                  } else if (_cloudProvider ==
+                                      CloudTtsProvider.microsoftEdge) {
                                     _selectedEdgeVoice = voice;
+                                  } else {
+                                    _selectedElevenLabsVoice = voice;
                                   }
                                 });
                               },
@@ -328,6 +335,78 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                           ],
                         ],
+                        if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _loadingElevenLabsVoices
+                                      ? null
+                                      : _loadElevenLabsVoices,
+                                  icon: _loadingElevenLabsVoices
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : const Icon(
+                                          Icons.record_voice_over_outlined),
+                                  label: Text(
+                                    _elevenLabsVoices.isEmpty
+                                        ? '加载 ElevenLabs Voices'
+                                        : '刷新 ElevenLabs Voices',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_elevenLabsVoicesError != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _elevenLabsVoicesError!,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                            ),
+                          ],
+                          if (_elevenLabsVoices.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<String>(
+                              initialValue: _elevenLabsVoices.any(
+                                (voice) =>
+                                    voice.id == _voiceController.text.trim(),
+                              )
+                                  ? _voiceController.text.trim()
+                                  : null,
+                              decoration: const InputDecoration(
+                                labelText: '选择 ElevenLabs Voice',
+                              ),
+                              items: _elevenLabsVoices
+                                  .map(
+                                    (voice) => DropdownMenuItem<String>(
+                                      value: voice.id,
+                                      child: Text(
+                                        voice.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _selectedElevenLabsVoice = value;
+                                  _voiceController.text = value;
+                                });
+                              },
+                            ),
+                          ],
+                        ],
                         const SizedBox(height: 12),
                         TextField(
                           controller: _voiceController,
@@ -428,7 +507,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     subtitle: '需要的时候再展开填写，日常更像一个轻量控制面板。',
                     child: Column(
                       children: [
-                        if (_cloudProvider == CloudTtsProvider.openai)
+                        if (_cloudProvider != CloudTtsProvider.microsoftEdge)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: TextField(
@@ -544,10 +623,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _applySettings(SpeechSettings settings) {
-    final isHiddenProvider =
-        settings.cloudProvider == CloudTtsProvider.elevenlabs;
-    final effectiveProvider =
-        isHiddenProvider ? CloudTtsProvider.openai : settings.cloudProvider;
+    final effectiveProvider = settings.cloudProvider;
     final effectiveVoice = settings.voice.isEmpty
         ? SpeechSettings.defaultVoiceFor(effectiveProvider)
         : settings.voice;
@@ -555,24 +631,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _initialized = true;
     _providerMode = settings.providerMode;
     _cloudProvider = effectiveProvider;
-    _endpointController.text = isHiddenProvider
-        ? SpeechSettings.defaultEndpointFor(effectiveProvider)
-        : SpeechSettings.normalizeEndpointFor(
-            effectiveProvider,
-            settings.endpoint,
-          );
-    _apiKeyController.text = isHiddenProvider ? '' : settings.apiKey;
-    _modelController.text = isHiddenProvider
-        ? SpeechSettings.defaultModelFor(effectiveProvider)
-        : settings.model;
-    _voiceController.text = isHiddenProvider ? effectiveVoice : settings.voice;
-    _selectedOpenAiVoice =
-        ReaderSpeechService.openAiVoices.contains(_voiceController.text)
-            ? _voiceController.text
-            : ReaderSpeechService.openAiVoices.first;
-    _selectedEdgeVoice = _voiceController.text.trim().isEmpty
-        ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
-        : _voiceController.text.trim();
+    _endpointController.text = SpeechSettings.normalizeEndpointFor(
+      effectiveProvider,
+      settings.endpoint,
+    );
+    _apiKeyController.text = settings.apiKey;
+    _modelController.text = settings.model;
+    _voiceController.text = settings.voice;
+    _selectedOpenAiVoice = effectiveProvider == CloudTtsProvider.openai &&
+            ReaderSpeechService.openAiVoices.contains(effectiveVoice)
+        ? effectiveVoice
+        : ReaderSpeechService.openAiVoices.first;
+    _selectedEdgeVoice = effectiveProvider == CloudTtsProvider.microsoftEdge
+        ? effectiveVoice
+        : SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge);
+    _selectedElevenLabsVoice =
+        effectiveProvider == CloudTtsProvider.elevenlabs ? effectiveVoice : '';
     _localVoiceId = settings.localVoiceId;
     _speed = settings.speed;
     _localSpeechRate = settings.localSpeechRate;
@@ -592,11 +666,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ? ''
           : _apiKeyController.text.trim(),
       model: _modelController.text.trim(),
-      voice: _cloudProvider == CloudTtsProvider.openai
-          ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
-          : _cloudProvider == CloudTtsProvider.microsoftEdge
-              ? (voice.isEmpty ? _selectedEdgeVoice : voice)
-              : voice,
+      voice: switch (_cloudProvider) {
+        CloudTtsProvider.openai => voice.isEmpty ? _selectedOpenAiVoice : voice,
+        CloudTtsProvider.microsoftEdge =>
+          voice.isEmpty ? _selectedEdgeVoice : voice,
+        CloudTtsProvider.elevenlabs =>
+          voice.isEmpty ? _selectedElevenLabsVoice : voice,
+      },
       localVoiceId: _localVoiceId,
       speed: _speed,
       localSpeechRate: _localSpeechRate,
@@ -614,6 +690,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   List<CloudTtsProvider> get _uiCloudProviders => const [
         CloudTtsProvider.openai,
         CloudTtsProvider.microsoftEdge,
+        CloudTtsProvider.elevenlabs,
       ];
 
   String _modeDescription(SpeechProviderMode mode) {
@@ -714,6 +791,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
           : _voiceController.text.trim();
     }
+    if (nextProvider == CloudTtsProvider.elevenlabs) {
+      _selectedElevenLabsVoice = _voiceController.text.trim();
+    }
   }
 
   Future<void> _loadEdgeVoices() async {
@@ -740,6 +820,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) {
         setState(() {
           _loadingEdgeVoices = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadElevenLabsVoices() async {
+    setState(() {
+      _loadingElevenLabsVoices = true;
+      _elevenLabsVoicesError = null;
+    });
+
+    try {
+      final voices =
+          await ref.read(readerSpeechServiceProvider).listElevenLabsVoices(
+                apiKey: _apiKeyController.text.trim(),
+                endpoint: _endpointController.text.trim(),
+              );
+      if (!mounted) return;
+      setState(() {
+        _elevenLabsVoices = voices;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _elevenLabsVoices = const [];
+        _elevenLabsVoicesError = '加载 ElevenLabs voices 失败: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingElevenLabsVoices = false;
         });
       }
     }

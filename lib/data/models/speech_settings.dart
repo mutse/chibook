@@ -19,6 +19,10 @@ class SpeechSettings {
     r'^audio-[a-z0-9-]+$',
     caseSensitive: false,
   );
+  static final RegExp _elevenLabsVoicePathPattern = RegExp(
+    r'^(.*?/v1/text-to-speech)(?:/([^/?#]+)|/\{voice_id\})/?$',
+    caseSensitive: false,
+  );
 
   const SpeechSettings({
     required this.providerMode,
@@ -112,6 +116,7 @@ class SpeechSettings {
     return switch (provider) {
       CloudTtsProvider.microsoftEdge =>
         _normalizeMicrosoftEdgeEndpoint(trimmed),
+      CloudTtsProvider.elevenlabs => _normalizeElevenLabsEndpoint(trimmed),
       _ => trimmed,
     };
   }
@@ -219,5 +224,24 @@ class SpeechSettings {
     }
 
     return defaultVoiceFor(CloudTtsProvider.microsoftEdge);
+  }
+
+  static String _normalizeElevenLabsEndpoint(String endpoint) {
+    final candidate = endpoint.startsWith('api.elevenlabs.io')
+        ? 'https://$endpoint'
+        : endpoint;
+    final uri = Uri.tryParse(candidate);
+    if (uri == null) {
+      return defaultEndpointFor(CloudTtsProvider.elevenlabs);
+    }
+
+    final match = _elevenLabsVoicePathPattern.firstMatch(candidate);
+    if (match != null) {
+      return match.group(1)!;
+    }
+
+    return candidate.endsWith('/')
+        ? candidate.substring(0, candidate.length - 1)
+        : candidate;
   }
 }

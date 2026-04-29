@@ -92,6 +92,30 @@ void main() {
     );
   });
 
+  test('elevenlabs endpoint strips pasted voice id path', () {
+    final endpoint = SpeechSettings.normalizeEndpointFor(
+      CloudTtsProvider.elevenlabs,
+      'https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb',
+    );
+
+    expect(
+      endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs),
+    );
+  });
+
+  test('elevenlabs endpoint strips voice placeholder path', () {
+    final endpoint = SpeechSettings.normalizeEndpointFor(
+      CloudTtsProvider.elevenlabs,
+      'https://api.elevenlabs.io/v1/text-to-speech/{voice_id}',
+    );
+
+    expect(
+      endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs),
+    );
+  });
+
   test('microsoft edge model falls back when another provider model is saved',
       () {
     final model = SpeechSettings.normalizeModelFor(
@@ -153,6 +177,19 @@ void main() {
     expect(
       settings.voice,
       SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+    );
+  });
+
+  test('service load defaults reader-facing provider to microsoft edge',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+
+    final settings = await const SpeechSettingsService().load();
+
+    expect(settings.cloudProvider, CloudTtsProvider.microsoftEdge);
+    expect(
+      settings.endpoint,
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
     );
   });
 }
