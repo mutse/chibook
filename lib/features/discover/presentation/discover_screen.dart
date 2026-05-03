@@ -1,5 +1,6 @@
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,7 +14,16 @@ class DiscoverScreen extends ConsumerStatefulWidget {
 }
 
 class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
+  final _searchController = TextEditingController();
   String _selectedCategory = '全部';
+  String _searchQuery = '';
+  int _mixOffset = 0;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,9 +36,24 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           child: booksAsync.when(
             data: (books) => _DiscoverBody(
               books: books,
+              searchController: _searchController,
+              searchQuery: _searchQuery,
+              mixOffset: _mixOffset,
+              onSearchChanged: (query) {
+                setState(() {
+                  _searchQuery = query;
+                  _mixOffset = 0;
+                });
+              },
+              onShuffle: () {
+                setState(() => _mixOffset += 1);
+              },
               selectedCategory: _selectedCategory,
               onSelectCategory: (category) {
-                setState(() => _selectedCategory = category);
+                setState(() {
+                  _selectedCategory = category;
+                  _mixOffset = 0;
+                });
               },
             ),
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -43,17 +68,28 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 class _DiscoverBody extends StatelessWidget {
   const _DiscoverBody({
     required this.books,
+    required this.searchController,
+    required this.searchQuery,
+    required this.mixOffset,
+    required this.onSearchChanged,
+    required this.onShuffle,
     required this.selectedCategory,
     required this.onSelectCategory,
   });
 
   final List<Book> books;
+  final TextEditingController searchController;
+  final String searchQuery;
+  final int mixOffset;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onShuffle;
   final String selectedCategory;
   final ValueChanged<String> onSelectCategory;
 
   @override
   Widget build(BuildContext context) {
     final recentBooks = sortBooksByRecent(books);
+    final queryMatchedBooks = filterBooksByQuery(recentBooks, searchQuery);
     final categories = [
       '全部',
       '个人成长',
@@ -64,12 +100,26 @@ class _DiscoverBody extends StatelessWidget {
       '小说',
     ];
     final filteredBooks = selectedCategory == '全部'
-        ? recentBooks
-        : recentBooks
+        ? queryMatchedBooks
+        : queryMatchedBooks
             .where((book) => pseudoCategoryForBook(book) == selectedCategory)
             .toList();
-    final featured = filteredBooks.take(3).toList();
-    final smartMix = filteredBooks.reversed.take(4).toList();
+    final rankedBooks = sortBooksForShelf(
+      filteredBooks,
+      BookshelfSortMode.progress,
+    );
+    final featured = rankedBooks.take(3).toList();
+    final continueBooks = rankedBooks
+        .where((book) => book.progress > 0 && book.progress < 1)
+        .take(3)
+        .toList();
+    final smartMix = rankedBooks.isEmpty
+        ? <Book>[]
+        : List<Book>.generate(
+            rankedBooks.length < 4 ? rankedBooks.length : 4,
+            (index) => rankedBooks[(mixOffset + index) % rankedBooks.length],
+          );
+    final hasQuery = searchQuery.trim().isNotEmpty;
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -87,7 +137,33 @@ class _DiscoverBody extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 8),
-                const AppSearchBar(hint: '搜索书名 / 作者 / 关键词'),
+                AppSearchBar(
+                  hint: '搜索书名 / 作者 / 关键词',
+                  controller: searchController,
+                  onChanged: onSearchChanged,
+                  trailing: hasQuery
+                      ? GestureDetector(
+                          onTap: () {
+                            searchController.clear();
+                            onSearchChanged('');
+                          },
+                          child: const Icon(
+                            Icons.close_rounded,
+                            color: Color(0xFF6F7EA8),
+                          ),
+                        )
+                      : null,
+                ),
+                if (hasQuery) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '“$searchQuery” 下共有 ${filteredBooks.length} 本',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF647196),
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 _DiscoverHero(
                   bookCount: books.length,
@@ -99,93 +175,13 @@ class _DiscoverBody extends StatelessWidget {
             ),
           ),
         ),
-        if (featured.isNotEmpty)
+        if (hasQuery && filteredBooks.isEmpty)
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-              child: SectionHeader(
-                title: '热门书单',
-                actionLabel: '${filteredBooks.length} 本',
-              ),
-            ),
-          ),
-        if (featured.isNotEmpty)
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 250,
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                scrollDirection: Axis.horizontal,
-                itemCount: featured.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemBuilder: (context, index) =>
-                    _FeaturedCard(book: featured[index]),
-              ),
-            ),
-          ),
-        const SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
-            child: SectionHeader(title: '热门分类'),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.8,
-              children: categories
-                  .where((category) => category != '全部')
-                  .map(
-                    (category) => _CategoryCard(
-                      title: category,
-                      count: recentBooks
-                          .where(
-                              (book) => pseudoCategoryForBook(book) == category)
-                          .length,
-                      active: selectedCategory == category,
-                      onTap: () => onSelectCategory(category),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ),
-        if (smartMix.isNotEmpty) ...[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-              child: SectionHeader(
-                title: '猜你喜欢',
-                actionLabel: '换一组',
-                onTap: () {},
-              ),
-            ),
-          ),
-          SliverList.builder(
-            itemCount: smartMix.length,
-            itemBuilder: (context, index) {
-              final book = smartMix[index];
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: _RecommendationRow(book: book),
-              );
-            },
-          ),
-        ] else
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 100),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
               child: LiquidGlassCard(
                 child: Text(
-                  selectedCategory == '全部'
-                      ? '导入几本书后，这里会出现更贴近你的推荐流。'
-                      : '当前分类下还没有匹配内容，先切回“全部”看看。',
+                  '当前关键词没有匹配内容，换个作者名、分类或者先去导入更多书籍试试。',
                   style: Theme.of(context)
                       .textTheme
                       .bodyLarge
@@ -193,7 +189,125 @@ class _DiscoverBody extends StatelessWidget {
                 ),
               ),
             ),
+          )
+        else ...[
+          if (featured.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: SectionHeader(
+                  title: '热门书单',
+                  actionLabel: '${filteredBooks.length} 本',
+                ),
+              ),
+            ),
+          if (featured.isNotEmpty)
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 250,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: featured.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 14),
+                  itemBuilder: (context, index) =>
+                      _FeaturedCard(book: featured[index]),
+                ),
+              ),
+            ),
+          if (continueBooks.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: SectionHeader(
+                  title: '继续在读',
+                  actionLabel: '${continueBooks.length} 本',
+                ),
+              ),
+            ),
+          if (continueBooks.isNotEmpty)
+            SliverList.builder(
+              itemCount: continueBooks.length,
+              itemBuilder: (context, index) {
+                final book = continueBooks[index];
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: _RecommendationRow(book: book),
+                );
+              },
+            ),
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+              child: SectionHeader(title: '热门分类'),
+            ),
           ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.8,
+                children: categories
+                    .where((category) => category != '全部')
+                    .map(
+                      (category) => _CategoryCard(
+                        title: category,
+                        count: recentBooks
+                            .where((book) =>
+                                pseudoCategoryForBook(book) == category)
+                            .length,
+                        active: selectedCategory == category,
+                        onTap: () => onSelectCategory(category),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ),
+          if (smartMix.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: SectionHeader(
+                  title: '猜你喜欢',
+                  actionLabel: smartMix.length > 1 ? '换一组' : null,
+                  onTap: smartMix.length > 1 ? onShuffle : null,
+                ),
+              ),
+            ),
+            SliverList.builder(
+              itemCount: smartMix.length,
+              itemBuilder: (context, index) {
+                final book = smartMix[index];
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: _RecommendationRow(book: book),
+                );
+              },
+            ),
+          ] else
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 100),
+                child: LiquidGlassCard(
+                  child: Text(
+                    selectedCategory == '全部'
+                        ? '导入几本书后，这里会出现更贴近你的推荐流。'
+                        : '当前分类下还没有匹配内容，先切回“全部”看看。',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyLarge
+                        ?.copyWith(height: 1.6),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }

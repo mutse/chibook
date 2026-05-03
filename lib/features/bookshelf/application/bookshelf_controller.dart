@@ -26,17 +26,32 @@ final bookshelfControllerProvider =
 );
 
 class BookshelfController extends AsyncNotifier<List<Book>> {
+  bool _isImporting = false;
+
   @override
   Future<List<Book>> build() async {
     return ref.read(bookRepositoryProvider).getBooks();
   }
 
   Future<Book?> importBook() async {
-    final imported = await ref.read(fileImportServiceProvider).pickAndImportBook();
-    if (imported == null) return null;
+    if (_isImporting) return null;
 
-    await ref.read(bookRepositoryProvider).saveBook(imported);
+    _isImporting = true;
+    try {
+      final imported =
+          await ref.read(fileImportServiceProvider).pickAndImportBook();
+      if (imported == null) return null;
+
+      await ref.read(bookRepositoryProvider).saveBook(imported);
+      state = AsyncData(await ref.read(bookRepositoryProvider).getBooks());
+      return imported;
+    } finally {
+      _isImporting = false;
+    }
+  }
+
+  Future<void> removeBook(String bookId) async {
+    await ref.read(bookRepositoryProvider).deleteBook(bookId);
     state = AsyncData(await ref.read(bookRepositoryProvider).getBooks());
-    return imported;
   }
 }

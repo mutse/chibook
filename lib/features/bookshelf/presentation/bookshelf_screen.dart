@@ -1,11 +1,14 @@
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 enum _ShelfFilter { all, reading, finished, epub, pdf }
+
+enum _ShelfBookAction { remove }
 
 class BookshelfScreen extends ConsumerWidget {
   const BookshelfScreen({
@@ -28,14 +31,8 @@ class BookshelfScreen extends ConsumerWidget {
           child: booksAsync.when(
             data: (books) => _BookshelfBody(
               books: books,
-              onImport: () async {
-                final book = await ref
-                    .read(bookshelfControllerProvider.notifier)
-                    .importBook();
-                if (book != null && context.mounted) {
-                  context.push('/book/${book.id}');
-                }
-              },
+              onImport: () => _importBook(context, ref),
+              onRemoveBook: (book) => _removeBook(context, ref, book),
             ),
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (error, stack) => Center(child: Text('加载书架失败: $error')),
@@ -44,31 +41,94 @@ class BookshelfScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Future<void> _importBook(BuildContext context, WidgetRef ref) async {
+    try {
+      final book =
+          await ref.read(bookshelfControllerProvider.notifier).importBook();
+      if (book != null && context.mounted) {
+        context.push('/book/${book.id}');
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败，请重试: $error')),
+      );
+    }
+  }
+
+  Future<void> _removeBook(
+    BuildContext context,
+    WidgetRef ref,
+    Book book,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('从书架移除'),
+        content: Text('确认移除《${book.title}》吗？当前阅读进度也会一起清除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    await ref.read(bookshelfControllerProvider.notifier).removeBook(book.id);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已从书架移除《${book.title}》')),
+    );
+  }
 }
 
 class _BookshelfBody extends StatefulWidget {
   const _BookshelfBody({
     required this.books,
     required this.onImport,
+    required this.onRemoveBook,
   });
 
   final List<Book> books;
-  final VoidCallback onImport;
+  final Future<void> Function() onImport;
+  final Future<void> Function(Book book) onRemoveBook;
 
   @override
   State<_BookshelfBody> createState() => _BookshelfBodyState();
 }
 
 class _BookshelfBodyState extends State<_BookshelfBody> {
+  final _searchController = TextEditingController();
   _ShelfFilter _selectedFilter = _ShelfFilter.all;
+  BookshelfSortMode _selectedSort = BookshelfSortMode.recent;
   bool _gridMode = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final recentBooks = sortBooksByRecent(widget.books);
-    final filteredBooks = recentBooks.where(_matchesFilter).toList();
+    final insights = buildReadingInsights(widget.books);
+    final searchedBooks =
+        filterBooksByQuery(recentBooks, _searchController.text.trim());
+    final filteredBooks = sortBooksForShelf(
+      searchedBooks.where(_matchesFilter),
+      _selectedSort,
+    );
     final activeBooks = recentBooks.where((book) => book.progress > 0).toList();
     final spotlight = activeBooks.isNotEmpty ? activeBooks.first : null;
+    final hasQuery = _searchController.text.trim().isNotEmpty;
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -109,7 +169,7 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                       ),
                     ),
                     IconButton(
-                      onPressed: widget.onImport,
+                      onPressed: () async => widget.onImport(),
                       icon: const Icon(Icons.add_circle_outline_rounded),
                     ),
                   ],
@@ -119,35 +179,67 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                   children: [
                     Expanded(
                       child: _SummaryCard(
-                        label: '全部',
-                        value: '${widget.books.length} 本',
+                        label: '本周新增',
+                        value: '${insights.importedThisWeek} 本',
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _SummaryCard(
                         label: '在听',
-                        value: '${activeBooks.length} 本',
+                        value: '${insights.readingBooks} 本',
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _SummaryCard(
-                        label: '已听完',
-                        value:
-                            '${widget.books.where((book) => book.progress >= 1).length} 本',
+                        label: '完成率',
+                        value: '${insights.completionRate}%',
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 18),
-                const AppSearchBar(
+                AppSearchBar(
                   hint: '搜索书名 / 作者 / 关键词',
-                  trailing: Icon(
-                    Icons.tune_rounded,
-                    color: Color(0xFF6F7EA8),
+                  controller: _searchController,
+                  onChanged: (_) => setState(() {}),
+                  trailing: PopupMenuButton<BookshelfSortMode>(
+                    tooltip: '排序',
+                    initialValue: _selectedSort,
+                    onSelected: (value) {
+                      setState(() => _selectedSort = value);
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: BookshelfSortMode.recent,
+                        child: Text('按最近阅读'),
+                      ),
+                      PopupMenuItem(
+                        value: BookshelfSortMode.progress,
+                        child: Text('按阅读进度'),
+                      ),
+                      PopupMenuItem(
+                        value: BookshelfSortMode.title,
+                        child: Text('按书名'),
+                      ),
+                    ],
+                    child: const Icon(
+                      Icons.tune_rounded,
+                      color: Color(0xFF6F7EA8),
+                    ),
                   ),
                 ),
+                if (hasQuery) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '“${_searchController.text.trim()}” 匹配到 ${filteredBooks.length} 本',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF647196),
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -171,14 +263,15 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                 _ShelfHeroCard(
                   booksCount: widget.books.length,
                   activeCount: activeBooks.length,
-                  finishedCount:
-                      widget.books.where((book) => book.progress >= 1).length,
+                  finishedCount: insights.finishedBooks,
                 ),
               ],
             ),
           ),
         ),
-        if (spotlight != null && _selectedFilter == _ShelfFilter.all)
+        if (!hasQuery &&
+            spotlight != null &&
+            _selectedFilter == _ShelfFilter.all)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
@@ -216,7 +309,7 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                     ),
                     const SizedBox(height: 18),
                     FilledButton(
-                      onPressed: widget.onImport,
+                      onPressed: () async => widget.onImport(),
                       child: const Text('导入书籍'),
                     ),
                   ],
@@ -229,7 +322,10 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
             sliver: SliverGrid(
               delegate: SliverChildBuilderDelegate(
-                (context, index) => _ShelfGridCard(book: filteredBooks[index]),
+                (context, index) => _ShelfGridCard(
+                  book: filteredBooks[index],
+                  onRemove: () => widget.onRemoveBook(filteredBooks[index]),
+                ),
                 childCount: filteredBooks.length,
               ),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -248,7 +344,7 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                   child: Text(
-                    '共 ${filteredBooks.length} 本',
+                    '共 ${filteredBooks.length} 本 · ${_sortLabel(_selectedSort)}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 );
@@ -256,7 +352,10 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
               final book = filteredBooks[index - 1];
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: _ShelfRow(book: book),
+                child: _ShelfRow(
+                  book: book,
+                  onRemove: () => widget.onRemoveBook(book),
+                ),
               );
             },
           ),
@@ -295,12 +394,24 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
   }
 
   String _emptyHint() {
+    if (_searchController.text.trim().isNotEmpty) {
+      return '可以换个关键词、作者名或分类试试，书架会即时重新筛选。';
+    }
+
     return switch (_selectedFilter) {
       _ShelfFilter.all => '导入 EPUB 或 PDF 后，首页、播放页和详情页都会自动跟着充实起来。',
       _ShelfFilter.reading => '先从首页或详情页点一次“立即收听”，这里就会变成你的在听列表。',
       _ShelfFilter.finished => '等一本书完整听完后，这里会自然沉淀成你的已完成书单。',
       _ShelfFilter.epub => '导入一本 EPUB 后，这里会更适合做章节式边听边读。',
       _ShelfFilter.pdf => '导入一本 PDF 后，这里会支持按页与目录继续收听。',
+    };
+  }
+
+  String _sortLabel(BookshelfSortMode sortMode) {
+    return switch (sortMode) {
+      BookshelfSortMode.recent => '最近阅读',
+      BookshelfSortMode.progress => '阅读进度',
+      BookshelfSortMode.title => '书名排序',
     };
   }
 }
@@ -567,9 +678,13 @@ class _HeroMetric extends StatelessWidget {
 }
 
 class _ShelfRow extends StatelessWidget {
-  const _ShelfRow({required this.book});
+  const _ShelfRow({
+    required this.book,
+    required this.onRemove,
+  });
 
   final Book book;
+  final Future<void> Function() onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -631,7 +746,13 @@ class _ShelfRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.chevron_right_rounded, color: Color(0xFF7280A7)),
+          Column(
+            children: [
+              _ShelfBookMenu(onRemove: onRemove),
+              const SizedBox(height: 12),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF7280A7)),
+            ],
+          ),
         ],
       ),
     );
@@ -639,9 +760,13 @@ class _ShelfRow extends StatelessWidget {
 }
 
 class _ShelfGridCard extends StatelessWidget {
-  const _ShelfGridCard({required this.book});
+  const _ShelfGridCard({
+    required this.book,
+    required this.onRemove,
+  });
 
   final Book book;
+  final Future<void> Function() onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -669,6 +794,10 @@ class _ShelfGridCard extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
           ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _ShelfBookMenu(onRemove: onRemove),
+          ),
           const SizedBox(height: 6),
           Text(
             book.author,
@@ -691,6 +820,43 @@ class _ShelfGridCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ShelfBookMenu extends StatelessWidget {
+  const _ShelfBookMenu({required this.onRemove});
+
+  final Future<void> Function() onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_ShelfBookAction>(
+      tooltip: '管理书籍',
+      onSelected: (action) async {
+        if (action == _ShelfBookAction.remove) {
+          await onRemove();
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _ShelfBookAction.remove,
+          child: Text('从书架移除'),
+        ),
+      ],
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.62),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(
+          Icons.more_horiz_rounded,
+          size: 18,
+          color: Color(0xFF647196),
+        ),
       ),
     );
   }

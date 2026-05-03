@@ -132,6 +132,8 @@ class ReaderController {
             updatedAt: DateTime.now(),
           ),
         );
+    ref.invalidate(currentBookProvider(bookId));
+    ref.invalidate(bookshelfControllerProvider);
   }
 
   void setReaderExcerpt({
@@ -235,6 +237,16 @@ class ReaderController {
         : toc.indexWhere((item) => item.startPage >= currentPage);
     if (tocIndex < 0) {
       tocIndex = toc.length - 1;
+    }
+
+    if (tocIndex == 0 && currentPage < toc.first.startPage) {
+      await _playPdfPageRange(
+        book: book,
+        sessionId: sessionId,
+        startPage: currentPage.clamp(1, toc.first.startPage - 1).toInt(),
+        endPage: toc.first.startPage - 1,
+        title: '开篇',
+      );
     }
 
     for (var index = tocIndex;

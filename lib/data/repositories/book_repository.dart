@@ -5,5 +5,6 @@ abstract class BookRepository {
   Future<List<Book>> getBooks();
   Future<Book?> getBook(String id);
   Future<void> saveBook(Book book);
+  Future<void> deleteBook(String id);
   Future<void> updateProgress(ReadingProgress progress);
 }

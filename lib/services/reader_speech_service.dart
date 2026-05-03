@@ -5,38 +5,35 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:chibook/data/models/speech_settings.dart';
-import 'package:crypto/crypto.dart';
+import 'package:chibook/services/edge_tts/edge_tts_client.dart';
+import 'package:chibook/services/edge_tts/edge_tts_voices.dart';
+import 'package:chibook/services/edge_tts/models.dart';
 import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
 class ReaderSpeechService {
   ReaderSpeechService({
     FlutterTts? flutterTts,
     http.Client? client,
     AudioPlayer? audioPlayer,
+    EdgeTtsClient? edgeTtsClient,
   })  : _flutterTts = flutterTts ?? FlutterTts(),
         _client = client ?? http.Client(),
-        _audioPlayer = audioPlayer ?? AudioPlayer() {
+        _audioPlayer = audioPlayer ?? AudioPlayer(),
+        _edgeTtsClient = edgeTtsClient ?? EdgeTtsClient(httpClient: client) {
     _configurePlaybackCallbacks();
   }
 
   final FlutterTts _flutterTts;
   final http.Client _client;
   final AudioPlayer _audioPlayer;
+  final EdgeTtsClient _edgeTtsClient;
   Completer<void>? _playbackCompleter;
   Object? _activePlaybackToken;
-
-  static const _edgeTrustedClientToken = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-  static const _edgeOrigin =
-      'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold';
-  static const _edgeChromiumFullVersion = '143.0.3650.75';
-  static const _edgeWindowsEpochSeconds = 11644473600;
-  static const _uuid = Uuid();
 
   static const List<String> openAiVoices = [
     'alloy',
@@ -59,22 +56,7 @@ class ReaderSpeechService {
     'eleven_v3',
   ];
 
-  static const List<String> edgePreviewVoices = [
-    'zh-CN-XiaoxiaoNeural',
-    'zh-CN-YunxiNeural',
-    'zh-CN-XiaoyiNeural',
-    'zh-HK-HiuGaaiNeural',
-    'zh-TW-HsiaoChenNeural',
-    'en-US-AriaNeural',
-    'en-US-JennyNeural',
-    'en-US-GuyNeural',
-    'en-GB-SoniaNeural',
-  ];
-
-  static const _edgeUserAgent =
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 '
-      'Safari/537.36 Edg/143.0.3650.75';
+  static const List<String> edgePreviewVoices = EdgeTtsVoices.previewVoices;
 
   Future<void> speak(String text) async {
     final config = await _loadConfig();
@@ -278,43 +260,19 @@ class ReaderSpeechService {
   Future<List<CloudVoiceOption>> listEdgeVoices({
     required String endpoint,
   }) async {
-    final secMsGec = _edgeSecMsGec();
-    final response = await _client.get(
-      _edgeVoicesUri(endpoint, secMsGec: secMsGec),
-      headers: {
-        'Accept': 'application/json',
-        ..._edgeRequestHeaders(includeMuid: true),
-      },
-    );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'Failed to load Microsoft Edge voices (${response.statusCode}): ${_extractErrorMessage(response.body)}',
-      );
-    }
-
-    final decoded = jsonDecode(response.body);
-    if (decoded is! List) return const [];
-
-    final voices = decoded
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
+    final voices = await _edgeTtsClient.listVoices(endpoint: endpoint);
+    return voices
         .map(
-          (item) => CloudVoiceOption(
-            id: item['ShortName']?.toString().trim() ?? '',
-            name: item['FriendlyName']?.toString().trim() ??
-                item['ShortName']?.toString().trim() ??
-                '',
+          (voice) => CloudVoiceOption(
+            id: voice.id,
+            name: voice.name,
             category: [
-              item['Locale']?.toString().trim() ?? '',
-              item['Gender']?.toString().trim() ?? '',
+              voice.locale,
+              voice.gender,
             ].where((value) => value.isNotEmpty).join(' · '),
           ),
         )
-        .where((voice) => voice.id.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.label.compareTo(b.label));
-    return voices;
+        .toList();
   }
 
   Future<void> _setLocalVoiceById(String voiceId) async {
@@ -383,7 +341,7 @@ class ReaderSpeechService {
           prefs.getString(SpeechSettingsStorageKeys.cloudProvider) ??
               prefs.getString(SpeechSettingsStorageKeys.legacyCloudProvider),
         ) ??
-        CloudTtsProvider.openai;
+        CloudTtsProvider.microsoftEdge;
     return SpeechConfig(
       providerMode: _parseMode(providerModeName),
       cloudProvider: cloudProvider,
@@ -396,12 +354,18 @@ class ReaderSpeechService {
       apiKey: prefs.getString(SpeechSettingsStorageKeys.apiKey) ??
           prefs.getString(SpeechSettingsStorageKeys.legacyApiKey) ??
           '',
-      model: prefs.getString(SpeechSettingsStorageKeys.model) ??
-          prefs.getString(SpeechSettingsStorageKeys.legacyModel) ??
-          SpeechSettings.defaultModelFor(cloudProvider),
-      voice: prefs.getString(SpeechSettingsStorageKeys.voice) ??
-          prefs.getString(SpeechSettingsStorageKeys.legacyVoice) ??
-          SpeechSettings.defaultVoiceFor(cloudProvider),
+      model: SpeechSettings.normalizeModelFor(
+        cloudProvider,
+        prefs.getString(SpeechSettingsStorageKeys.model) ??
+            prefs.getString(SpeechSettingsStorageKeys.legacyModel) ??
+            SpeechSettings.defaultModelFor(cloudProvider),
+      ),
+      voice: SpeechSettings.normalizeVoiceFor(
+        cloudProvider,
+        prefs.getString(SpeechSettingsStorageKeys.voice) ??
+            prefs.getString(SpeechSettingsStorageKeys.legacyVoice) ??
+            SpeechSettings.defaultVoiceFor(cloudProvider),
+      ),
       localVoiceId: prefs.getString(SpeechSettingsStorageKeys.localVoiceId) ??
           prefs.getString(SpeechSettingsStorageKeys.legacyLocalVoiceId) ??
           '',
@@ -461,17 +425,13 @@ class ReaderSpeechService {
     String text,
     SpeechConfig config,
   ) async {
-    final voiceId = config.voice.trim();
+    final voiceId = _resolveElevenLabsVoiceId(config);
     if (voiceId.isEmpty) {
       throw Exception('ElevenLabs voice ID is required.');
     }
 
-    final baseEndpoint = config.endpoint.trim().isEmpty
-        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs)
-        : config.endpoint.trim();
-    final endpoint = baseEndpoint.contains('{voice_id}')
-        ? baseEndpoint.replaceAll('{voice_id}', voiceId)
-        : '$baseEndpoint/$voiceId';
+    final baseEndpoint = _resolveElevenLabsEndpoint(config.endpoint);
+    final endpoint = '$baseEndpoint/$voiceId';
 
     final uri = Uri.parse(endpoint).replace(
       queryParameters: {
@@ -505,349 +465,68 @@ class ReaderSpeechService {
     String text,
     SpeechConfig config,
   ) async {
-    final secMsGec = _edgeSecMsGec();
-    final socket = await WebSocket.connect(
-      _edgeWebSocketUri(
-        config.endpoint,
-        connectionId: _edgeConnectionId(),
-        secMsGec: secMsGec,
-      ).toString(),
-      headers: {
-        ..._edgeRequestHeaders(includeMuid: true),
-        'Pragma': 'no-cache',
-        'Cache-Control': 'no-cache',
-      },
-      compression: CompressionOptions.compressionOff,
+    return _edgeTtsClient.synthesize(
+      text,
+      TtsConfig(
+        voice: SpeechSettings.normalizeVoiceFor(
+          CloudTtsProvider.microsoftEdge,
+          config.voice,
+        ),
+        rate: _edgeRate(config.speed),
+        outputFormat: SpeechSettings.normalizeModelFor(
+          CloudTtsProvider.microsoftEdge,
+          config.model,
+        ),
+      ),
+      endpoint: config.endpoint,
     );
-
-    final outputFormat = config.model.trim().isEmpty
-        ? SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge)
-        : config.model.trim();
-    final voice = config.voice.trim().isEmpty
-        ? SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge)
-        : config.voice.trim();
-    final timestamp = _edgeTimestamp();
-    final audioBytes = <int>[];
-
-    try {
-      socket.add(
-        _edgeSpeechConfigMessage(
-          timestamp: timestamp,
-          outputFormat: outputFormat,
-        ),
-      );
-      socket.add(
-        _edgeSsmlRequestMessage(
-          requestId: _edgeRequestId(),
-          timestamp: timestamp,
-          voice: voice,
-          rate: _edgeRate(config.speed),
-          text: text,
-        ),
-      );
-
-      await for (final message in socket) {
-        if (message is String && message.contains('Path:turn.end')) {
-          break;
-        }
-
-        if (message is List<int>) {
-          audioBytes.addAll(_edgeAudioBytes(message));
-        }
-      }
-    } finally {
-      await socket.close();
-    }
-
-    if (audioBytes.isEmpty) {
-      throw Exception('Microsoft Edge returned empty audio data.');
-    }
-    return Uint8List.fromList(audioBytes);
   }
 
   Uri _elevenLabsVoicesUri(String endpoint) {
-    final baseEndpoint = endpoint.trim().isEmpty
-        ? SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs)
-        : endpoint.trim();
+    final baseEndpoint = _resolveElevenLabsEndpoint(endpoint);
     final uri = Uri.parse(baseEndpoint);
     return uri.replace(path: '/v2/voices', queryParameters: null);
   }
 
-  Uri _edgeVoicesUri(
-    String endpoint, {
-    required String secMsGec,
-  }) {
-    final uri = _edgeBaseUri(endpoint);
-    return uri.replace(
-      scheme: uri.scheme == 'ws' ? 'http' : 'https',
-      path: _edgeNormalizedPath(uri.path, synthesisPath: false),
-      queryParameters: {
-        ..._edgeQueryParameters(uri.queryParameters),
-        'trustedclienttoken': _edgeTrustedClientToken,
-        'Sec-MS-GEC': secMsGec,
-        'Sec-MS-GEC-Version': _edgeSecMsGecVersion,
-      },
+  String _resolveElevenLabsEndpoint(String endpoint) {
+    return SpeechSettings.normalizeEndpointFor(
+      CloudTtsProvider.elevenlabs,
+      endpoint,
     );
   }
 
-  Uri _edgeWebSocketUri(
-    String endpoint, {
-    required String connectionId,
-    required String secMsGec,
-  }) {
-    final uri = _edgeBaseUri(endpoint);
-    return uri.replace(
-      scheme: uri.scheme == 'http' ? 'ws' : 'wss',
-      path: _edgeNormalizedPath(uri.path, synthesisPath: true),
-      queryParameters: {
-        ..._edgeQueryParameters(uri.queryParameters),
-        'TrustedClientToken': _edgeTrustedClientToken,
-        'Sec-MS-GEC': secMsGec,
-        'Sec-MS-GEC-Version': _edgeSecMsGecVersion,
-        'ConnectionId': connectionId,
-      },
-    );
-  }
-
-  String _edgeSsmlBody({
-    required String voice,
-    required String rate,
-    required String text,
-  }) {
-    final locale = _voiceLocale(voice);
-    return '<speak version="1.0" '
-        'xmlns="http://www.w3.org/2001/10/synthesis" '
-        'xmlns:mstts="http://www.w3.org/2001/mstts" '
-        'xml:lang="$locale">'
-        '<voice xml:lang="$locale" name="$voice"><prosody rate="$rate">'
-        '${const HtmlEscape().convert(_sanitizeEdgeText(text))}'
-        '</prosody></voice></speak>';
-  }
-
-  String _sanitizeEdgeText(String text) {
-    final buffer = StringBuffer();
-    for (final rune in text.runes) {
-      if ((rune >= 0 && rune <= 8) ||
-          (rune >= 11 && rune <= 12) ||
-          (rune >= 14 && rune <= 31)) {
-        buffer.write(' ');
-      } else {
-        buffer.write(String.fromCharCode(rune));
-      }
+  String _resolveElevenLabsVoiceId(SpeechConfig config) {
+    final configuredVoice = config.voice.trim();
+    if (configuredVoice.isNotEmpty) {
+      return configuredVoice;
     }
-    return buffer.toString();
+
+    final endpoint = config.endpoint.trim();
+    if (endpoint.isEmpty) {
+      return '';
+    }
+
+    final uri = Uri.tryParse(endpoint);
+    if (uri == null) {
+      return '';
+    }
+
+    final segments = uri.pathSegments;
+    final speechIndex = segments.indexOf('text-to-speech');
+    if (speechIndex == -1 || speechIndex + 1 >= segments.length) {
+      return '';
+    }
+
+    final voiceId = segments[speechIndex + 1].trim();
+    if (voiceId.isEmpty || voiceId == '{voice_id}') {
+      return '';
+    }
+    return voiceId;
   }
 
   String _edgeRate(double speed) {
     final delta = ((speed - 1.0) * 100).round().clamp(-100, 100);
     return '${delta >= 0 ? '+' : ''}$delta%';
-  }
-
-  Map<String, String> _edgeRequestHeaders({
-    required bool includeMuid,
-  }) {
-    final headers = {
-      'User-Agent': _edgeUserAgent,
-      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Origin': _edgeOrigin,
-    };
-    if (includeMuid) {
-      headers['Cookie'] = 'muid=${_edgeMuid()};';
-    }
-    return headers;
-  }
-
-  Uri _edgeBaseUri(String endpoint) {
-    final normalized = SpeechSettings.normalizeEndpointFor(
-      CloudTtsProvider.microsoftEdge,
-      endpoint,
-    );
-    return Uri.parse(normalized);
-  }
-
-  String _edgeNormalizedPath(
-    String rawPath, {
-    required bool synthesisPath,
-  }) {
-    var path = rawPath.trim();
-    if (path.isEmpty || path == '/') {
-      return synthesisPath
-          ? '/consumer/speech/synthesize/readaloud/edge/v1'
-          : '/consumer/speech/synthesize/readaloud/voices/list';
-    }
-    if (path.endsWith('/')) {
-      path = path.substring(0, path.length - 1);
-    }
-
-    if (synthesisPath) {
-      if (path.endsWith('/voices/list')) {
-        return path.replaceFirst(RegExp(r'/voices/list$'), '/edge/v1');
-      }
-      if (path.endsWith('/readaloud')) {
-        return '$path/edge/v1';
-      }
-      if (path.endsWith('/edge/v1')) {
-        return path;
-      }
-      return path;
-    }
-
-    if (path.endsWith('/edge/v1')) {
-      return path.replaceFirst(RegExp(r'/edge/v1$'), '/voices/list');
-    }
-    if (path.endsWith('/readaloud')) {
-      return '$path/voices/list';
-    }
-    if (path.endsWith('/voices/list')) {
-      return path;
-    }
-    return path;
-  }
-
-  Map<String, String> _edgeQueryParameters(Map<String, String> raw) {
-    final query = <String, String>{};
-    for (final entry in raw.entries) {
-      final key = entry.key.toLowerCase();
-      if (key == 'trustedclienttoken' ||
-          key == 'connectionid' ||
-          key == 'sec-ms-gec' ||
-          key == 'sec-ms-gec-version') {
-        continue;
-      }
-      query[entry.key] = entry.value;
-    }
-    return query;
-  }
-
-  String _edgeSpeechConfigMessage({
-    required String timestamp,
-    required String outputFormat,
-  }) {
-    return 'X-Timestamp:$timestamp\r\n'
-        'Content-Type:application/json; charset=utf-8\r\n'
-        'Path:speech.config\r\n\r\n'
-        '{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"$outputFormat"}}}}';
-  }
-
-  String _edgeSsmlRequestMessage({
-    required String requestId,
-    required String timestamp,
-    required String voice,
-    required String rate,
-    required String text,
-  }) {
-    return 'X-RequestId:$requestId\r\n'
-        'Content-Type:application/ssml+xml\r\n'
-        'X-Timestamp:${timestamp}Z\r\n'
-        'Path:ssml\r\n\r\n'
-        '${_edgeSsmlBody(voice: voice, rate: rate, text: text)}';
-  }
-
-  List<int> _edgeAudioBytes(List<int> message) {
-    if (message.length >= 2) {
-      final headerLength = (message[0] << 8) | message[1];
-      final payloadStart = headerLength + 2;
-      if (payloadStart <= message.length) {
-        final headers = ascii.decode(
-          message.sublist(2, payloadStart),
-          allowInvalid: true,
-        );
-        if (headers.contains('Path:audio')) {
-          return message.sublist(payloadStart);
-        }
-      }
-    }
-
-    final boundary = _indexOfBytes(message, const [13, 10, 13, 10]);
-    if (boundary < 0) {
-      return const [];
-    }
-    final headers = ascii.decode(
-      message.sublist(0, boundary),
-      allowInvalid: true,
-    );
-    if (!headers.contains('Path:audio')) {
-      return const [];
-    }
-    return message.sublist(boundary + 4);
-  }
-
-  int _indexOfBytes(List<int> source, List<int> target) {
-    if (target.isEmpty || source.length < target.length) {
-      return -1;
-    }
-    for (var i = 0; i <= source.length - target.length; i++) {
-      var matched = true;
-      for (var j = 0; j < target.length; j++) {
-        if (source[i + j] != target[j]) {
-          matched = false;
-          break;
-        }
-      }
-      if (matched) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  String _edgeRequestId() {
-    return _uuid.v4().replaceAll('-', '').toUpperCase();
-  }
-
-  String _edgeConnectionId() {
-    return _uuid.v4().replaceAll('-', '');
-  }
-
-  String _edgeMuid() {
-    return _uuid.v4().replaceAll('-', '').toUpperCase();
-  }
-
-  String get _edgeSecMsGecVersion => '1-$_edgeChromiumFullVersion';
-
-  String _edgeSecMsGec() {
-    final nowSeconds = DateTime.now().toUtc().millisecondsSinceEpoch / 1000.0;
-    var ticks = nowSeconds + _edgeWindowsEpochSeconds;
-    ticks -= ticks % 300;
-    final windowsFileTimeTicks = (ticks * 10000000).round();
-    final hashInput = '$windowsFileTimeTicks$_edgeTrustedClientToken';
-    return sha256.convert(ascii.encode(hashInput)).toString().toUpperCase();
-  }
-
-  String _edgeTimestamp() {
-    final now = DateTime.now().toUtc();
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    final weekday = weekdays[now.weekday - 1];
-    final month = months[now.month - 1];
-    final day = now.day.toString().padLeft(2, '0');
-    final hour = now.hour.toString().padLeft(2, '0');
-    final minute = now.minute.toString().padLeft(2, '0');
-    final second = now.second.toString().padLeft(2, '0');
-    return '$weekday $month $day ${now.year} $hour:$minute:$second GMT+0000 (Coordinated Universal Time)';
-  }
-
-  String _voiceLocale(String voice) {
-    final parts = voice.split('-');
-    if (parts.length >= 2) {
-      return '${parts[0]}-${parts[1]}';
-    }
-    return 'en-US';
   }
 
   String _normalizeApiKey(String raw) {
@@ -868,7 +547,7 @@ class ReaderSpeechService {
       '',
     );
     value = value.replaceFirst(
-      RegExp(r'^xi-api-key\s*:\s*', caseSensitive: false),
+      RegExp(r'^xi-api-key\b\s*:?\s*', caseSensitive: false),
       '',
     );
     return value.trim();

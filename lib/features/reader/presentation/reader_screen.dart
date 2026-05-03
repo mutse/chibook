@@ -595,7 +595,7 @@ class _PdfChapterSheet extends ConsumerWidget {
           if (items.isEmpty) {
             return const Padding(
               padding: EdgeInsets.all(24),
-              child: Text('当前 PDF 没有可用目录，将按当前页朗读。'),
+              child: Text('当前 PDF 暂时没有识别到章节目录，将按当前页朗读。'),
             );
           }
           return ListView(
@@ -662,11 +662,15 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   late final TextEditingController _customVoiceController;
   String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
   String _selectedEdgeVoice = ReaderSpeechService.edgePreviewVoices.first;
+  String _selectedElevenLabsVoice = '';
   CloudTtsProvider _cloudProvider = CloudTtsProvider.openai;
   String _localVoiceId = '';
   List<CloudVoiceOption> _edgeVoices = const [];
+  List<CloudVoiceOption> _elevenLabsVoices = const [];
   bool _loadingEdgeVoices = false;
+  bool _loadingElevenLabsVoices = false;
   String? _edgeVoicesError;
+  String? _elevenLabsVoicesError;
   bool _initialized = false;
 
   @override
@@ -739,6 +743,10 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                     value: CloudTtsProvider.microsoftEdge,
                     child: Text('Microsoft Edge'),
                   ),
+                  DropdownMenuItem(
+                    value: CloudTtsProvider.elevenlabs,
+                    child: Text('ElevenLabs'),
+                  ),
                 ],
                 onChanged: (value) {
                   if (value == null) return;
@@ -746,8 +754,10 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                     _cloudProvider = value;
                     if (value == CloudTtsProvider.openai) {
                       _customVoiceController.text = _selectedOpenAiVoice;
-                    } else {
+                    } else if (value == CloudTtsProvider.microsoftEdge) {
                       _customVoiceController.text = _selectedEdgeVoice;
+                    } else {
+                      _customVoiceController.text = _selectedElevenLabsVoice;
                     }
                   });
                 },
@@ -875,16 +885,92 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                   ),
                 ],
               ],
+              if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _loadingElevenLabsVoices
+                            ? null
+                            : () => _loadElevenLabsVoices(settings),
+                        icon: _loadingElevenLabsVoices
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.record_voice_over_outlined),
+                        label: Text(
+                          _elevenLabsVoices.isEmpty
+                              ? '加载 ElevenLabs Voices'
+                              : '刷新 ElevenLabs Voices',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_elevenLabsVoicesError != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _elevenLabsVoicesError!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                    ),
+                  ),
+                ],
+                if (_elevenLabsVoices.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _elevenLabsVoices.any(
+                      (voice) => voice.id == _customVoiceController.text.trim(),
+                    )
+                        ? _customVoiceController.text.trim()
+                        : null,
+                    decoration: const InputDecoration(
+                      labelText: '选择 ElevenLabs Voice',
+                    ),
+                    items: _elevenLabsVoices
+                        .map(
+                          (voice) => DropdownMenuItem<String>(
+                            value: voice.id,
+                            child: Text(
+                              voice.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _selectedElevenLabsVoice = value;
+                        _customVoiceController.text = value;
+                      });
+                    },
+                  ),
+                ],
+              ],
               const SizedBox(height: 12),
               TextField(
                 controller: _customVoiceController,
                 decoration: InputDecoration(
-                  labelText: _cloudProvider == CloudTtsProvider.openai
-                      ? '自定义 OpenAI Voice（可选）'
-                      : 'Microsoft Edge Voice',
-                  hintText: _cloudProvider == CloudTtsProvider.openai
-                      ? '例如: alloy'
-                      : '例如: zh-CN-XiaoxiaoNeural',
+                  labelText: switch (_cloudProvider) {
+                    CloudTtsProvider.openai => '自定义 OpenAI Voice（可选）',
+                    CloudTtsProvider.microsoftEdge => 'Microsoft Edge Voice',
+                    CloudTtsProvider.elevenlabs => 'ElevenLabs Voice ID',
+                  },
+                  hintText: switch (_cloudProvider) {
+                    CloudTtsProvider.openai => '例如: alloy',
+                    CloudTtsProvider.microsoftEdge =>
+                      '例如: zh-CN-XiaoxiaoNeural',
+                    CloudTtsProvider.elevenlabs => '例如: EXAVITQu4vr4xnSDxMaL',
+                  },
                 ),
               ),
               const SizedBox(height: 12),
@@ -928,12 +1014,15 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
               FilledButton(
                 onPressed: () async {
                   final voice = _customVoiceController.text.trim();
-                  final nextVoice = _cloudProvider == CloudTtsProvider.openai
-                      ? (voice.isEmpty ? _selectedOpenAiVoice : voice)
-                      : (voice.isEmpty ? _selectedEdgeVoice : voice);
-                  final normalizeHiddenProvider =
-                      settings.cloudProvider == CloudTtsProvider.elevenlabs;
-                  final providerChanged = normalizeHiddenProvider ||
+                  final nextVoice = switch (_cloudProvider) {
+                    CloudTtsProvider.openai =>
+                      voice.isEmpty ? _selectedOpenAiVoice : voice,
+                    CloudTtsProvider.microsoftEdge =>
+                      voice.isEmpty ? _selectedEdgeVoice : voice,
+                    CloudTtsProvider.elevenlabs =>
+                      voice.isEmpty ? _selectedElevenLabsVoice : voice,
+                  };
+                  final providerChanged =
                       settings.cloudProvider != _cloudProvider;
                   final messenger = ScaffoldMessenger.of(context);
                   await ref
@@ -952,9 +1041,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                           apiKey:
                               _cloudProvider == CloudTtsProvider.microsoftEdge
                                   ? ''
-                                  : (normalizeHiddenProvider
-                                      ? ''
-                                      : settings.apiKey),
+                                  : settings.apiKey,
                           model: providerChanged
                               ? SpeechSettings.defaultModelFor(
                                   _cloudProvider,
@@ -987,24 +1074,23 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   }
 
   void _applySettings(SpeechSettings settings) {
-    final isHiddenProvider =
-        settings.cloudProvider == CloudTtsProvider.elevenlabs;
-    final effectiveProvider =
-        isHiddenProvider ? CloudTtsProvider.openai : settings.cloudProvider;
+    final effectiveProvider = settings.cloudProvider;
     final effectiveVoice = settings.voice.isEmpty
         ? SpeechSettings.defaultVoiceFor(effectiveProvider)
         : settings.voice;
 
     _initialized = true;
     _cloudProvider = effectiveProvider;
-    _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.contains(
-      effectiveVoice,
-    )
+    _selectedOpenAiVoice = effectiveProvider == CloudTtsProvider.openai &&
+            ReaderSpeechService.openAiVoices.contains(effectiveVoice)
         ? effectiveVoice
         : ReaderSpeechService.openAiVoices.first;
-    _selectedEdgeVoice = effectiveVoice;
-    _customVoiceController.text =
-        isHiddenProvider ? effectiveVoice : settings.voice;
+    _selectedEdgeVoice = effectiveProvider == CloudTtsProvider.microsoftEdge
+        ? effectiveVoice
+        : SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge);
+    _selectedElevenLabsVoice =
+        effectiveProvider == CloudTtsProvider.elevenlabs ? effectiveVoice : '';
+    _customVoiceController.text = settings.voice;
     _localVoiceId = settings.localVoiceId;
     setState(() {});
   }
@@ -1040,6 +1126,44 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
       if (mounted) {
         setState(() {
           _loadingEdgeVoices = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadElevenLabsVoices(SpeechSettings settings) async {
+    final endpoint = _cloudProvider == settings.cloudProvider
+        ? SpeechSettings.normalizeEndpointFor(
+            settings.cloudProvider,
+            settings.endpoint,
+          )
+        : SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs);
+
+    setState(() {
+      _loadingElevenLabsVoices = true;
+      _elevenLabsVoicesError = null;
+    });
+
+    try {
+      final voices =
+          await ref.read(readerSpeechServiceProvider).listElevenLabsVoices(
+                apiKey: settings.apiKey,
+                endpoint: endpoint,
+              );
+      if (!mounted) return;
+      setState(() {
+        _elevenLabsVoices = voices;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _elevenLabsVoices = const [];
+        _elevenLabsVoicesError = '加载 ElevenLabs voices 失败: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingElevenLabsVoices = false;
         });
       }
     }

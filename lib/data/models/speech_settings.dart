@@ -3,6 +3,27 @@ enum SpeechProviderMode { auto, cloud, local }
 enum CloudTtsProvider { openai, microsoftEdge, elevenlabs }
 
 class SpeechSettings {
+  static final RegExp _edgeVoicePattern = RegExp(
+    r'^[a-z]{2,3}-[A-Za-z]{2,4}-.+Neural$',
+    caseSensitive: false,
+  );
+  static final RegExp _edgeVoiceDisplayNamePattern = RegExp(
+    r'^Microsoft Server Speech Text to Speech Voice \(([^,]+),\s*([^)]+)\)$',
+    caseSensitive: false,
+  );
+  static final RegExp _edgeVoiceLocaleSeparatorPattern = RegExp(
+    r'^([a-z]{2,3}-[A-Za-z]{2,4})[\s,_]+(.+Neural)$',
+    caseSensitive: false,
+  );
+  static final RegExp _edgeOutputFormatPattern = RegExp(
+    r'^audio-[a-z0-9-]+$',
+    caseSensitive: false,
+  );
+  static final RegExp _elevenLabsVoicePathPattern = RegExp(
+    r'^(.*?/v1/text-to-speech)(?:/([^/?#]+)|/\{voice_id\})/?$',
+    caseSensitive: false,
+  );
+
   const SpeechSettings({
     required this.providerMode,
     required this.cloudProvider,
@@ -93,10 +114,41 @@ class SpeechSettings {
     }
 
     return switch (provider) {
+      CloudTtsProvider.microsoftEdge =>
+        _normalizeMicrosoftEdgeEndpoint(trimmed),
+      CloudTtsProvider.elevenlabs => _normalizeElevenLabsEndpoint(trimmed),
+      _ => trimmed,
+    };
+  }
+
+  static String normalizeModelFor(
+    CloudTtsProvider provider,
+    String model,
+  ) {
+    final trimmed = model.trim();
+    if (trimmed.isEmpty) {
+      return defaultModelFor(provider);
+    }
+
+    return switch (provider) {
       CloudTtsProvider.microsoftEdge
-          when trimmed ==
-              'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1' =>
-        defaultEndpointFor(provider),
+          when !_edgeOutputFormatPattern.hasMatch(trimmed) =>
+        defaultModelFor(provider),
+      _ => trimmed,
+    };
+  }
+
+  static String normalizeVoiceFor(
+    CloudTtsProvider provider,
+    String voice,
+  ) {
+    final trimmed = voice.trim();
+    if (trimmed.isEmpty) {
+      return defaultVoiceFor(provider);
+    }
+
+    return switch (provider) {
+      CloudTtsProvider.microsoftEdge => _normalizeMicrosoftEdgeVoice(trimmed),
       _ => trimmed,
     };
   }
@@ -115,5 +167,81 @@ class SpeechSettings {
       CloudTtsProvider.microsoftEdge => 'zh-CN-XiaoxiaoNeural',
       CloudTtsProvider.elevenlabs => '',
     };
+  }
+
+  static String _normalizeMicrosoftEdgeEndpoint(String endpoint) {
+    final candidate = endpoint.startsWith('speech.platform.bing.com')
+        ? 'wss://$endpoint'
+        : endpoint;
+    final uri = Uri.tryParse(candidate);
+    if (uri == null) {
+      return defaultEndpointFor(CloudTtsProvider.microsoftEdge);
+    }
+
+    final host = uri.host.toLowerCase();
+    final path = uri.path.toLowerCase();
+    final isKnownMicrosoftSpeechHost = host == 'speech.platform.bing.com' ||
+        host.endsWith('.tts.speech.microsoft.com') ||
+        host.endsWith('.speech.microsoft.com');
+
+    if (isKnownMicrosoftSpeechHost &&
+        (host != 'speech.platform.bing.com' ||
+            path.contains('/cognitiveservices/') ||
+            path.contains('/consumer/speech/synthesize/readaloud'))) {
+      return defaultEndpointFor(CloudTtsProvider.microsoftEdge);
+    }
+
+    return candidate;
+  }
+
+  static String _normalizeMicrosoftEdgeVoice(String voice) {
+    var normalized = voice.trim();
+    if (normalized.startsWith('"') &&
+        normalized.endsWith('"') &&
+        normalized.length >= 2) {
+      normalized = normalized.substring(1, normalized.length - 1).trim();
+    }
+
+    final displayNameMatch = _edgeVoiceDisplayNamePattern.firstMatch(
+      normalized,
+    );
+    if (displayNameMatch != null) {
+      normalized =
+          '${displayNameMatch.group(1)!.trim()}-${displayNameMatch.group(2)!.trim()}';
+    }
+
+    final localeSeparatorMatch = _edgeVoiceLocaleSeparatorPattern.firstMatch(
+      normalized,
+    );
+    if (localeSeparatorMatch != null) {
+      normalized =
+          '${localeSeparatorMatch.group(1)!.trim()}-${localeSeparatorMatch.group(2)!.trim()}';
+    }
+
+    normalized = normalized.replaceAll(' ', '');
+    if (_edgeVoicePattern.hasMatch(normalized)) {
+      return normalized;
+    }
+
+    return defaultVoiceFor(CloudTtsProvider.microsoftEdge);
+  }
+
+  static String _normalizeElevenLabsEndpoint(String endpoint) {
+    final candidate = endpoint.startsWith('api.elevenlabs.io')
+        ? 'https://$endpoint'
+        : endpoint;
+    final uri = Uri.tryParse(candidate);
+    if (uri == null) {
+      return defaultEndpointFor(CloudTtsProvider.elevenlabs);
+    }
+
+    final match = _elevenLabsVoicePathPattern.firstMatch(candidate);
+    if (match != null) {
+      return match.group(1)!;
+    }
+
+    return candidate.endsWith('/')
+        ? candidate.substring(0, candidate.length - 1)
+        : candidate;
   }
 }

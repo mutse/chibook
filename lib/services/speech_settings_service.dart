@@ -63,18 +63,24 @@ class SpeechSettingsService {
             SpeechSettingsStorageKeys.legacyApiKey,
           ) ??
           defaults.apiKey,
-      model: _readString(
-            prefs,
-            SpeechSettingsStorageKeys.model,
-            SpeechSettingsStorageKeys.legacyModel,
-          ) ??
-          defaultModel,
-      voice: _readString(
-            prefs,
-            SpeechSettingsStorageKeys.voice,
-            SpeechSettingsStorageKeys.legacyVoice,
-          ) ??
-          defaultVoice,
+      model: SpeechSettings.normalizeModelFor(
+        cloudProvider,
+        _readString(
+              prefs,
+              SpeechSettingsStorageKeys.model,
+              SpeechSettingsStorageKeys.legacyModel,
+            ) ??
+            defaultModel,
+      ),
+      voice: SpeechSettings.normalizeVoiceFor(
+        cloudProvider,
+        _readString(
+              prefs,
+              SpeechSettingsStorageKeys.voice,
+              SpeechSettingsStorageKeys.legacyVoice,
+            ) ??
+            defaultVoice,
+      ),
       localVoiceId: _readString(
             prefs,
             SpeechSettingsStorageKeys.localVoiceId,
@@ -114,8 +120,20 @@ class SpeechSettingsService {
       ),
     );
     await prefs.setString(SpeechSettingsStorageKeys.apiKey, settings.apiKey);
-    await prefs.setString(SpeechSettingsStorageKeys.model, settings.model);
-    await prefs.setString(SpeechSettingsStorageKeys.voice, settings.voice);
+    await prefs.setString(
+      SpeechSettingsStorageKeys.model,
+      SpeechSettings.normalizeModelFor(
+        settings.cloudProvider,
+        settings.model,
+      ),
+    );
+    await prefs.setString(
+      SpeechSettingsStorageKeys.voice,
+      SpeechSettings.normalizeVoiceFor(
+        settings.cloudProvider,
+        settings.voice,
+      ),
+    );
     await prefs.setString(
       SpeechSettingsStorageKeys.localVoiceId,
       settings.localVoiceId,

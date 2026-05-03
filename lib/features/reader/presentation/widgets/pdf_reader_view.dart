@@ -88,11 +88,28 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
               interactionMode: PdfInteractionMode.selection,
               enableTextSelection: true,
               canShowTextSelectionMenu: true,
-              onDocumentLoaded: (_) {
+              onDocumentLoaded: (details) {
+                final currentPage =
+                    ref.read(currentPdfPageProvider(widget.book.id));
+                final requestedPage =
+                    ref.read(requestedPdfPageProvider(widget.book.id));
+                final targetPage = requestedPage ?? currentPage;
+                final initialPage =
+                    targetPage.clamp(1, details.document.pages.count).toInt();
+                _activePageNumber = initialPage;
                 ref
                     .read(currentPdfPageProvider(widget.book.id).notifier)
-                    .state = 1;
-                _syncCurrentChapter(1);
+                    .state = initialPage;
+                if (initialPage != 1) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    _pdfViewerController.jumpToPage(initialPage);
+                    ref
+                        .read(requestedPdfPageProvider(widget.book.id).notifier)
+                        .state = null;
+                  });
+                }
+                _syncCurrentChapter(initialPage);
               },
               onTextSelectionChanged: (details) {
                 final nextText = details.selectedText?.trim() ?? '';

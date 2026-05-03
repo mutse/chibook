@@ -79,6 +79,23 @@ class SqliteBookRepository implements BookRepository {
   }
 
   @override
+  Future<void> deleteBook(String id) async {
+    final db = await _databaseService.database();
+    await db.transaction((txn) async {
+      await txn.delete(
+        'reading_progress',
+        where: 'book_id = ?',
+        whereArgs: [id],
+      );
+      await txn.delete(
+        'books',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  @override
   Future<void> updateProgress(ReadingProgress progress) async {
     final db = await _databaseService.database();
     await db.insert(

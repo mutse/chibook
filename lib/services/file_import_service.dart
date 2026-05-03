@@ -5,6 +5,7 @@ import 'package:chibook/services/epub_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:uuid/uuid.dart';
 
 class FileImportService {
@@ -15,57 +16,97 @@ class FileImportService {
   final EpubService epubService;
 
   Future<Book?> pickAndImportBook() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['epub', 'pdf'],
-    );
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['epub', 'pdf'],
+      );
 
-    final picked = result?.files.single;
-    final sourcePath = picked?.path;
-    if (picked == null || sourcePath == null) return null;
+      final picked = result?.files.single;
+      final sourcePath = picked?.path;
+      if (picked == null || sourcePath == null) return null;
 
-    final extension = path.extension(sourcePath).toLowerCase();
-    final format = switch (extension) {
-      '.epub' => BookFormat.epub,
-      '.pdf' => BookFormat.pdf,
-      _ => throw UnsupportedError('Unsupported book format: $extension'),
-    };
+      final extension = path.extension(sourcePath).toLowerCase();
+      final format = switch (extension) {
+        '.epub' => BookFormat.epub,
+        '.pdf' => BookFormat.pdf,
+        _ => throw UnsupportedError('Unsupported book format: $extension'),
+      };
 
-    final appDir = await getApplicationDocumentsDirectory();
-    final booksDir = Directory(path.join(appDir.path, 'books'));
-    if (!booksDir.existsSync()) {
-      await booksDir.create(recursive: true);
-    }
+      final appDir = await getApplicationDocumentsDirectory();
+      final booksDir = Directory(path.join(appDir.path, 'books'));
+      if (!booksDir.existsSync()) {
+        await booksDir.create(recursive: true);
+      }
 
-    final bookId = const Uuid().v4();
-    final fileName = '$bookId$extension';
-    final targetPath = path.join(booksDir.path, fileName);
-    await File(sourcePath).copy(targetPath);
+      final bookId = const Uuid().v4();
+      final fileName = '$bookId$extension';
+      final targetPath = path.join(booksDir.path, fileName);
+      await File(sourcePath).copy(targetPath);
 
-    final rawName = path.basenameWithoutExtension(picked.name);
-    var title = rawName;
-    var author = 'Unknown Author';
+      final rawName = path.basenameWithoutExtension(picked.name);
+      var title = rawName;
+      var author = 'Unknown Author';
 
-    if (format == BookFormat.epub) {
-      final metadata = await epubService.loadMetadata(targetPath);
-      if (metadata case (final metaTitle, final metaAuthor)) {
-        if (metaTitle.trim().isNotEmpty) {
-          title = metaTitle.trim();
+      if (format == BookFormat.epub) {
+        final metadata = await epubService.loadMetadata(targetPath);
+        if (metadata case (final metaTitle, final metaAuthor)) {
+          if (metaTitle.trim().isNotEmpty) {
+            title = metaTitle.trim();
+          }
+          if (metaAuthor.trim().isNotEmpty) {
+            author = metaAuthor.trim();
+          }
         }
-        if (metaAuthor.trim().isNotEmpty) {
-          author = metaAuthor.trim();
+      } else if (format == BookFormat.pdf) {
+        final metadata = await _loadPdfMetadata(targetPath);
+        if (metadata case (final metaTitle, final metaAuthor)) {
+          if (metaTitle.trim().isNotEmpty) {
+            title = metaTitle.trim();
+          }
+          if (metaAuthor.trim().isNotEmpty) {
+            author = metaAuthor.trim();
+          }
         }
       }
-    }
 
-    return Book(
-      id: bookId,
-      title: title,
-      author: author,
-      filePath: targetPath,
-      originalFileName: picked.name,
-      format: format,
-      importedAt: DateTime.now(),
-    );
+      return Book(
+        id: bookId,
+        title: title,
+        author: author,
+        filePath: targetPath,
+        originalFileName: picked.name,
+        format: format,
+        importedAt: DateTime.now(),
+      );
+    } finally {
+      await _clearTemporaryFilesSafely();
+    }
+  }
+
+  Future<void> _clearTemporaryFilesSafely() async {
+    try {
+      await FilePicker.platform.clearTemporaryFiles();
+    } catch (_) {
+      // Only supported on mobile platforms. Import should still succeed
+      // when cache cleanup is unavailable.
+    }
+  }
+
+  Future<(String, String)?> _loadPdfMetadata(String filePath) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final document = PdfDocument(inputBytes: bytes);
+      try {
+        final info = document.documentInformation;
+        final title = info.title.replaceAll('\u0000', '').trim();
+        final author = info.author.replaceAll('\u0000', '').trim();
+        return (title, author);
+      } finally {
+        document.dispose();
+      }
+    } catch (_) {
+      return null;
+    }
   }
 }
