@@ -49,4 +49,9 @@ class BookshelfController extends AsyncNotifier<List<Book>> {
       _isImporting = false;
     }
   }
+
+  Future<void> removeBook(String bookId) async {
+    await ref.read(bookRepositoryProvider).deleteBook(bookId);
+    state = AsyncData(await ref.read(bookRepositoryProvider).getBooks());
+  }
 }

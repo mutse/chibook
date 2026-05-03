@@ -1,5 +1,6 @@
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:flutter/material.dart';
@@ -14,7 +15,15 @@ class ReadingHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _ReadingHomeScreenState extends ConsumerState<ReadingHomeScreen> {
+  final _searchController = TextEditingController();
   String _selectedCategory = '全部';
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +36,11 @@ class _ReadingHomeScreenState extends ConsumerState<ReadingHomeScreen> {
           child: booksAsync.when(
             data: (books) => _HomeBody(
               books: books,
+              searchController: _searchController,
+              searchQuery: _searchQuery,
+              onSearchChanged: (query) {
+                setState(() => _searchQuery = query);
+              },
               selectedCategory: _selectedCategory,
               onSelectCategory: (category) {
                 setState(() => _selectedCategory = category);
@@ -44,17 +58,24 @@ class _ReadingHomeScreenState extends ConsumerState<ReadingHomeScreen> {
 class _HomeBody extends ConsumerWidget {
   const _HomeBody({
     required this.books,
+    required this.searchController,
+    required this.searchQuery,
+    required this.onSearchChanged,
     required this.selectedCategory,
     required this.onSelectCategory,
   });
 
   final List<Book> books;
+  final TextEditingController searchController;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
   final String selectedCategory;
   final ValueChanged<String> onSelectCategory;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final recentBooks = sortBooksByRecent(books);
+    final queryMatchedBooks = filterBooksByQuery(recentBooks, searchQuery);
     final categories = [
       '全部',
       '个人成长',
@@ -65,18 +86,23 @@ class _HomeBody extends ConsumerWidget {
       '小说',
     ];
     final filteredBooks = selectedCategory == '全部'
-        ? recentBooks
-        : recentBooks
+        ? queryMatchedBooks
+        : queryMatchedBooks
             .where((book) => pseudoCategoryForBook(book) == selectedCategory)
             .toList();
+    final hasQuery = searchQuery.trim().isNotEmpty;
     final featured = filteredBooks.isNotEmpty ? filteredBooks.first : null;
-    final continueBook = recentBooks
+    final continueCandidates = hasQuery ? filteredBooks : recentBooks;
+    final continueBook = continueCandidates
         .where((book) => book.progress > 0 && book.progress < 1)
         .cast<Book?>()
         .firstWhere((book) => book != null, orElse: () => featured);
     final recommendations = filteredBooks.take(3).toList();
-    final shelfPreview = recentBooks.take(4).toList();
-    final summaryBooks = recentBooks.take(2).toList();
+    final shelfPreview = filteredBooks.take(4).toList();
+    final summaryBooks = sortBooksForShelf(
+      filteredBooks,
+      BookshelfSortMode.progress,
+    ).take(2).toList();
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -89,11 +115,36 @@ class _HomeBody extends ConsumerWidget {
               children: [
                 _HomeHeader(onImport: () => _importBook(context, ref)),
                 const SizedBox(height: 18),
-                const AppSearchBar(
+                AppSearchBar(
                   hint: '搜索书名 / 作者 / 关键词',
-                  trailing:
-                      Icon(Icons.mic_none_rounded, color: Color(0xFF6F7EA8)),
+                  controller: searchController,
+                  onChanged: onSearchChanged,
+                  trailing: hasQuery
+                      ? GestureDetector(
+                          onTap: () {
+                            searchController.clear();
+                            onSearchChanged('');
+                          },
+                          child: const Icon(
+                            Icons.close_rounded,
+                            color: Color(0xFF6F7EA8),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.mic_none_rounded,
+                          color: Color(0xFF6F7EA8),
+                        ),
                 ),
+                if (hasQuery) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '“$searchQuery” 匹配到 ${filteredBooks.length} 本',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF647196),
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 _HeroCard(
                   book: featured,
@@ -137,130 +188,166 @@ class _HomeBody extends ConsumerWidget {
             ),
           ),
         ),
-        if (continueBook != null)
+        if (hasQuery && filteredBooks.isEmpty)
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-              child: _ContinueListeningCard(book: continueBook),
-            ),
-          ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-            child: SectionHeader(
-              title: '为你推荐',
-              actionLabel: '去发现',
-              onTap: () => context.go('/discover'),
-            ),
-          ),
-        ),
-        if (recommendations.isEmpty)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
               child: LiquidGlassCard(
-                child: Text('导入几本书后，这里会根据最近阅读自动生成推荐卡片。'),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.manage_search_rounded,
+                      size: 48,
+                      color: Color(0xFF5D7CFF),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      '没有找到匹配内容',
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '可以试试作者名、分类，或者先去导入更多书籍。',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(height: 1.6),
+                    ),
+                  ],
+                ),
               ),
             ),
           )
-        else
-          SliverList.builder(
-            itemCount: recommendations.length,
-            itemBuilder: (context, index) {
-              final book = recommendations[index];
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: _RecommendationTile(book: book),
-              );
-            },
-          ),
-        if (summaryBooks.isNotEmpty)
-          const SliverToBoxAdapter(
+        else ...[
+          if (continueBook != null)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+                child: _ContinueListeningCard(book: continueBook),
+              ),
+            ),
+          SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
-              child: SectionHeader(title: '今日速览'),
-            ),
-          ),
-        if (summaryBooks.isNotEmpty)
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 198,
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                scrollDirection: Axis.horizontal,
-                itemCount: summaryBooks.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (context, index) {
-                  final book = summaryBooks[index];
-                  return _InsightCard(book: book);
-                },
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+              child: SectionHeader(
+                title: hasQuery ? '搜索结果' : '为你推荐',
+                actionLabel: '去发现',
+                onTap: () => context.go('/discover'),
               ),
             ),
           ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: SectionHeader(
-              title: '最近加入书架',
-              actionLabel: '查看全部',
-              onTap: () => context.go('/bookshelf'),
+          if (recommendations.isEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: LiquidGlassCard(
+                  child: Text('导入几本书后，这里会根据最近阅读自动生成推荐卡片。'),
+                ),
+              ),
+            )
+          else
+            SliverList.builder(
+              itemCount: recommendations.length,
+              itemBuilder: (context, index) {
+                final book = recommendations[index];
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: _RecommendationTile(book: book),
+                );
+              },
             ),
-          ),
-        ),
-        if (shelfPreview.isEmpty)
-          const SliverToBoxAdapter(child: SizedBox(height: 120))
-        else
+          if (summaryBooks.isNotEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
+                child: SectionHeader(title: '今日速览'),
+              ),
+            ),
+          if (summaryBooks.isNotEmpty)
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 198,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: summaryBooks.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final book = summaryBooks[index];
+                    return _InsightCard(book: book);
+                  },
+                ),
+              ),
+            ),
           SliverToBoxAdapter(
-            child: SizedBox(
-              height: 248,
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
-                scrollDirection: Axis.horizontal,
-                itemBuilder: (context, index) {
-                  final book = shelfPreview[index];
-                  return GestureDetector(
-                    onTap: () => context.push('/book/${book.id}'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        BookCoverArt(
-                          book: book,
-                          width: 152,
-                          height: 192,
-                          radius: 26,
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: 152,
-                          child: Text(
-                            book.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SizedBox(
-                          width: 152,
-                          child: Text(
-                            '${book.author} · ${pseudoCategoryForBook(book)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemCount: shelfPreview.length,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: SectionHeader(
+                title: hasQuery ? '匹配书架' : '最近加入书架',
+                actionLabel: '查看全部',
+                onTap: () => context.go('/bookshelf'),
               ),
             ),
           ),
+          if (shelfPreview.isEmpty)
+            const SliverToBoxAdapter(child: SizedBox(height: 120))
+          else
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 248,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+                  scrollDirection: Axis.horizontal,
+                  itemBuilder: (context, index) {
+                    final book = shelfPreview[index];
+                    return GestureDetector(
+                      onTap: () => context.push('/book/${book.id}'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          BookCoverArt(
+                            book: book,
+                            width: 152,
+                            height: 192,
+                            radius: 26,
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: 152,
+                            child: Text(
+                              book.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: 152,
+                            child: Text(
+                              '${book.author} · ${pseudoCategoryForBook(book)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  separatorBuilder: (_, __) => const SizedBox(width: 14),
+                  itemCount: shelfPreview.length,
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }

@@ -132,6 +132,8 @@ class ReaderController {
             updatedAt: DateTime.now(),
           ),
         );
+    ref.invalidate(currentBookProvider(bookId));
+    ref.invalidate(bookshelfControllerProvider);
   }
 
   void setReaderExcerpt({

@@ -282,10 +282,14 @@ class AppSearchBar extends StatelessWidget {
   const AppSearchBar({
     super.key,
     required this.hint,
+    this.controller,
+    this.onChanged,
     this.trailing,
   });
 
   final String hint;
+  final TextEditingController? controller;
+  final ValueChanged<String>? onChanged;
   final Widget? trailing;
 
   @override
@@ -298,10 +302,21 @@ class AppSearchBar extends StatelessWidget {
           const Icon(Icons.search_rounded, size: 20, color: Color(0xFF6F7EA8)),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              hint,
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: hint,
+                hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF7F8EB1),
+                    ),
+              ),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF7F8EB1),
+                    color: const Color(0xFF52617F),
+                    fontWeight: FontWeight.w600,
                   ),
             ),
           ),

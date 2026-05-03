@@ -1,4 +1,5 @@
 import 'package:chibook/app/liquid_ui.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:chibook/features/settings/application/speech_settings_controller.dart';
 import 'package:flutter/material.dart';
@@ -19,10 +20,12 @@ class ProfileScreen extends ConsumerWidget {
         child: SafeArea(
           child: booksAsync.when(
             data: (books) {
-              final activeCount =
-                  books.where((book) => book.progress > 0).length;
-              final finishedCount =
-                  books.where((book) => book.progress >= 1).length + 28;
+              final insights = buildReadingInsights(books);
+              final listenedHours = insights.listenedMinutes == 0
+                  ? '0.0'
+                  : insights.listenedMinutes >= 60
+                      ? (insights.listenedMinutes / 60).toStringAsFixed(1)
+                      : '0.${(insights.listenedMinutes / 6).round().clamp(1, 9)}';
               final recentBooks = sortBooksByRecent(books);
               final recentBook = recentBooks.isEmpty ? null : recentBooks.first;
 
@@ -201,8 +204,8 @@ class ProfileScreen extends ConsumerWidget {
                                 Expanded(
                                   child: _MetricCard(
                                     icon: Icons.graphic_eq_rounded,
-                                    label: '听书时长',
-                                    value: '${books.length * 64 + 128}',
+                                    label: '累计听书',
+                                    value: listenedHours,
                                     unit: '小时',
                                   ),
                                 ),
@@ -210,17 +213,17 @@ class ProfileScreen extends ConsumerWidget {
                                 Expanded(
                                   child: _MetricCard(
                                     icon: Icons.headphones_rounded,
-                                    label: '在听书籍',
-                                    value: '$activeCount',
-                                    unit: '本',
+                                    label: '连续活跃',
+                                    value: '${insights.streakDays}',
+                                    unit: '天',
                                   ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: _MetricCard(
                                     icon: Icons.verified_rounded,
-                                    label: '听完书籍',
-                                    value: '$finishedCount',
+                                    label: '本周新增',
+                                    value: '${insights.importedThisWeek}',
                                     unit: '本',
                                   ),
                                 ),
@@ -234,12 +237,103 @@ class ProfileScreen extends ConsumerWidget {
                   const SizedBox(height: 18),
                   LiquidGlassCard(
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '阅读报告',
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '根据书架和阅读进度自动生成你的当前画像。',
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF647196),
+                                  ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _MetricCard(
+                                icon: Icons.headphones_rounded,
+                                label: '在听书籍',
+                                value: '${insights.readingBooks}',
+                                unit: '本',
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _MetricCard(
+                                icon: Icons.verified_rounded,
+                                label: '已听完',
+                                value: '${insights.finishedBooks}',
+                                unit: '本',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _MetricCard(
+                                icon: Icons.percent_rounded,
+                                label: '完成率',
+                                value: '${insights.completionRate}',
+                                unit: '%',
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _MetricCard(
+                                icon: Icons.category_rounded,
+                                label: '偏爱类别',
+                                value: insights.favoriteCategory,
+                                unit: '',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          recentBook == null
+                              ? '先导入一本到两本书，阅读报告就会逐渐形成你的偏好画像。'
+                              : '最近最活跃的是《${recentBook.title}》，继续保持会让推荐更贴近你的阅读习惯。',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(height: 1.6),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  LiquidGlassCard(
+                    child: Column(
                       children: [
                         _ProfileTile(
                           icon: Icons.auto_awesome_rounded,
                           title: 'AI 朗读设置',
                           subtitle: '调整音色、语速和试听参数',
                           onTap: () => context.push('/settings'),
+                        ),
+                        const Divider(height: 1),
+                        _ProfileTile(
+                          icon: Icons.menu_book_rounded,
+                          title: '管理书架',
+                          subtitle: '查看在读、完成和最近导入的全部书籍',
+                          onTap: () => context.go('/bookshelf'),
+                        ),
+                        const Divider(height: 1),
+                        _ProfileTile(
+                          icon: Icons.explore_rounded,
+                          title: '发现推荐',
+                          subtitle: '按分类和偏好继续找下一本想读的书',
+                          onTap: () => context.go('/discover'),
                         ),
                         const Divider(height: 1),
                         _ProfileTile(

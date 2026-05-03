@@ -44,6 +44,12 @@ class InMemoryBookRepository implements BookRepository {
   }
 
   @override
+  Future<void> deleteBook(String id) async {
+    _books.remove(id);
+    _progress.remove(id);
+  }
+
+  @override
   Future<void> updateProgress(ReadingProgress progress) async {
     _progress[progress.bookId] = progress;
   }

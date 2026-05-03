@@ -1,6 +1,8 @@
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:flutter/material.dart';
@@ -67,6 +69,10 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                             context.push('/book/${book.id}?tab=summary'),
                         icon: const Icon(Icons.auto_awesome_rounded),
                       ),
+                      IconButton(
+                        onPressed: () => _showBookActions(book),
+                        icon: const Icon(Icons.more_horiz_rounded),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -112,6 +118,66 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showBookActions(Book book) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.menu_book_rounded),
+                title: const Text('打开原文'),
+                subtitle: const Text('回到沉浸式阅读界面'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  this.context.push('/reader/${book.id}');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded),
+                title: const Text('从书架移除'),
+                subtitle: const Text('删除本地书籍记录和阅读进度'),
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  await _deleteBook(book);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteBook(Book book) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('从书架移除'),
+        content: Text('确认移除《${book.title}》吗？当前阅读进度也会一起清除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await ref.read(bookshelfControllerProvider.notifier).removeBook(book.id);
+    if (!mounted) return;
+    context.pop();
   }
 }
 
@@ -357,6 +423,10 @@ class _BookOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final remainingMinutes =
+        (estimateBookMinutes(book) * (1 - book.progress.clamp(0.0, 1.0)))
+            .round();
+
     return Column(
       children: [
         LiquidGlassCard(
@@ -397,6 +467,53 @@ class _BookOverview extends StatelessWidget {
                 minHeight: 4,
                 maxHeight: 12,
                 spacing: 2.4,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        LiquidGlassCard(
+          colors: const [Color(0xECFFFFFF), Color(0xB9E7F5FF)],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '阅读状态',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _InfoBadge(
+                      label: '最近阅读',
+                      value: book.lastReadAt == null
+                          ? '未开始'
+                          : recencyLabel(book.lastReadAt),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _InfoBadge(
+                      label: '剩余时长',
+                      value: remainingMinutes <= 0
+                          ? '已完成'
+                          : '$remainingMinutes 分钟',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                book.progress > 0
+                    ? '已经进入 ${progressLabel(book)}，现在最适合从上次停下的位置继续。'
+                    : '还没开始阅读，先看摘要或目录，再决定从哪里进入会更轻松。',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyLarge
+                    ?.copyWith(height: 1.6),
               ),
             ],
           ),
