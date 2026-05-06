@@ -35,11 +35,11 @@ Android and iOS platform projects are included in:
 Common build commands:
 
 ```bash
-/Users/mutse/development/flutter/bin/flutter pub get
-/Users/mutse/development/flutter/bin/flutter analyze
-/Users/mutse/development/flutter/bin/flutter build apk
-/Users/mutse/development/flutter/bin/flutter build appbundle
-/Users/mutse/development/flutter/bin/flutter build ios --no-codesign
+$ flutter pub get
+$ flutter analyze
+$ flutter build apk
+$ flutter build appbundle
+$ flutter build ios --no-codesign
 ```
 
 Before publishing a release, update the default app identifiers and signing config:
