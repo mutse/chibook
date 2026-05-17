@@ -1,5 +1,9 @@
 import 'package:chibook/features/bookshelf/presentation/book_detail_screen.dart';
+import 'package:chibook/features/bookshelf/presentation/book_ai_hub_screen.dart';
+import 'package:chibook/features/bookshelf/presentation/book_notebook_screen.dart';
+import 'package:chibook/features/bookshelf/presentation/book_playlist_screen.dart';
 import 'package:chibook/features/home/presentation/reading_home_screen.dart';
+import 'package:chibook/features/home/presentation/welcome_screen.dart';
 import 'package:chibook/features/navigation/presentation/app_shell.dart';
 import 'package:chibook/features/bookshelf/presentation/bookshelf_screen.dart';
 import 'package:chibook/features/discover/presentation/discover_screen.dart';
@@ -16,7 +20,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(
         path: '/',
-        redirect: (_, __) => '/home',
+        redirect: (_, __) => '/welcome',
+      ),
+      GoRoute(
+        path: '/welcome',
+        builder: (context, state) => const WelcomeScreen(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -86,6 +94,35 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final bookId = state.pathParameters['bookId']!;
           return ReaderScreen(bookId: bookId);
+        },
+      ),
+      GoRoute(
+        path: '/book/:bookId/ai',
+        builder: (context, state) {
+          final bookId = state.pathParameters['bookId']!;
+          final tab = state.uri.queryParameters['tab'];
+          return BookAiHubScreen(
+            bookId: bookId,
+            initialTabIndex: switch (tab) {
+              'mindmap' => 1,
+              'ask' => 2,
+              _ => 0,
+            },
+          );
+        },
+      ),
+      GoRoute(
+        path: '/book/:bookId/notebook',
+        builder: (context, state) {
+          final bookId = state.pathParameters['bookId']!;
+          return BookNotebookScreen(bookId: bookId);
+        },
+      ),
+      GoRoute(
+        path: '/book/:bookId/playlist',
+        builder: (context, state) {
+          final bookId = state.pathParameters['bookId']!;
+          return BookPlaylistScreen(bookId: bookId);
         },
       ),
       GoRoute(

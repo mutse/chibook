@@ -1,6 +1,7 @@
 import 'package:chibook/data/models/book.dart';
-import 'package:chibook/data/models/reader_preferences.dart';
 import 'package:chibook/data/models/epub_models.dart';
+import 'package:chibook/data/models/reader_preferences.dart';
+import 'package:chibook/features/bookshelf/presentation/widgets/book_annotation_sheet.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_preferences_controller.dart';
@@ -134,6 +135,7 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                       ),
                       const SizedBox(height: 18),
                       ..._buildSpeechSegments(
+                        chapter: chapter,
                         segments: segments,
                         activeSegmentIndex: activeSegmentIndex,
                         preferences: preferences,
@@ -219,6 +221,7 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
   }
 
   List<Widget> _buildSpeechSegments({
+    required EpubChapterData chapter,
     required List<String> segments,
     required int? activeSegmentIndex,
     required ReaderPreferences preferences,
@@ -250,13 +253,38 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
             color: isActive ? colors.activeBorder : Colors.transparent,
           ),
         ),
-        child: SelectableText(
-          segment,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontSize: preferences.fontSize,
-                height: preferences.lineHeight,
-                color: colors.primaryText,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SelectableText(
+                segment,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontSize: preferences.fontSize,
+                      height: preferences.lineHeight,
+                      color: colors.primaryText,
+                    ),
               ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: '加入划线',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => showBookAnnotationComposer(
+                context: context,
+                ref: ref,
+                bookId: widget.book.id,
+                quote: segment,
+                locationLabel: '第 ${chapter.index + 1} 章',
+                sectionTitle: chapter.title,
+              ),
+              icon: Icon(
+                Icons.bookmark_add_outlined,
+                size: 20,
+                color: isActive ? colors.activeBorder : colors.secondaryText,
+              ),
+            ),
+          ],
         ),
       );
     });

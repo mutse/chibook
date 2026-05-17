@@ -316,6 +316,27 @@ class ProfileScreen extends ConsumerWidget {
                     child: Column(
                       children: [
                         _ProfileTile(
+                          icon: Icons.file_upload_outlined,
+                          title: '导入书籍',
+                          subtitle: '支持 EPUB / PDF，本地导入后自动加入书架',
+                          onTap: () async {
+                            try {
+                              final book = await ref
+                                  .read(bookshelfControllerProvider.notifier)
+                                  .importBook();
+                              if (book != null && context.mounted) {
+                                context.push('/book/${book.id}');
+                              }
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('导入失败，请重试: $error')),
+                              );
+                            }
+                          },
+                        ),
+                        const Divider(height: 1),
+                        _ProfileTile(
                           icon: Icons.auto_awesome_rounded,
                           title: 'AI 朗读设置',
                           subtitle: '调整音色、语速和试听参数',

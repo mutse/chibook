@@ -50,6 +50,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               onTimerTap: () => _showTimerSheet(context),
               onSpeedTap: () => _showSpeedSheet(context),
               onChaptersTap: () {},
+              onPlaylistTap: null,
             ),
             const Spacer(),
             LiquidGlassCard(
@@ -117,6 +118,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           onTimerTap: () => _showTimerSheet(context),
           onSpeedTap: () => _showSpeedSheet(context),
           onChaptersTap: () => _showChapterSheet(context, currentBook),
+          onPlaylistTap: () => context.push('/book/${currentBook.id}/playlist'),
         ),
         const SizedBox(height: 16),
         Center(
@@ -424,11 +426,13 @@ class _PlayerTopBar extends StatelessWidget {
     required this.onTimerTap,
     required this.onSpeedTap,
     required this.onChaptersTap,
+    required this.onPlaylistTap,
   });
 
   final VoidCallback onTimerTap;
   final VoidCallback onSpeedTap;
   final VoidCallback onChaptersTap;
+  final VoidCallback? onPlaylistTap;
 
   @override
   Widget build(BuildContext context) {
@@ -464,6 +468,10 @@ class _PlayerTopBar extends StatelessWidget {
         IconButton(
           onPressed: onChaptersTap,
           icon: const Icon(Icons.toc_rounded, color: Colors.white),
+        ),
+        IconButton(
+          onPressed: onPlaylistTap,
+          icon: const Icon(Icons.queue_music_rounded, color: Colors.white),
         ),
         IconButton(
           onPressed: () => context.push('/settings'),

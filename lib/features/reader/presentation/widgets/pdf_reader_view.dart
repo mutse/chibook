@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:chibook/data/models/book.dart';
+import 'package:chibook/data/models/pdf_chapter_data.dart';
+import 'package:chibook/features/bookshelf/presentation/widgets/book_annotation_sheet.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:chibook/features/reader/presentation/widgets/pdf_selection_toolbar.dart';
 import 'package:flutter/material.dart';
@@ -195,6 +197,20 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
                   text: _selectedText,
                 );
               },
+              onSaveHighlight: () {
+                final chapter =
+                    ref.read(currentPdfChapterProvider(widget.book.id));
+                showBookAnnotationComposer(
+                  context: context,
+                  ref: ref,
+                  bookId: widget.book.id,
+                  quote: _selectedText,
+                  locationLabel: chapter == null
+                      ? '第 $_activePageNumber 页'
+                      : _pdfLocationLabel(chapter),
+                  sectionTitle: chapter?.title,
+                );
+              },
               onClear: () {
                 setState(() => _selectedText = '');
                 _syncCurrentChapter(_activePageNumber);
@@ -239,4 +255,10 @@ class _PdfReaderViewState extends ConsumerState<PdfReaderView> {
     _searchResult?.clear();
     _searchResult = null;
   }
+}
+
+String _pdfLocationLabel(PdfChapterData chapter) {
+  return chapter.isSinglePage
+      ? '第 ${chapter.startPage} 页'
+      : '第 ${chapter.startPage}-${chapter.endPage} 页';
 }

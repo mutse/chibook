@@ -209,6 +209,18 @@ class _ReaderHeader extends ConsumerWidget {
             ),
           ),
           IconButton(
+            onPressed: () => context.push('/book/${book.id}/notebook'),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            icon: Icon(Icons.sticky_note_2_outlined, color: colors.foreground),
+          ),
+          IconButton(
+            onPressed: () => context.push('/book/${book.id}/ai'),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            icon: Icon(Icons.auto_awesome_outlined, color: colors.foreground),
+          ),
+          IconButton(
             onPressed: () => Navigator.of(context).pop(),
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
@@ -405,6 +417,18 @@ class _SpeechBar extends ConsumerWidget {
                       },
                 icon: const Icon(Icons.download_for_offline_outlined),
               ),
+            IconButton(
+              tooltip: '划线与笔记',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => context.push('/book/${book.id}/notebook'),
+              icon: const Icon(Icons.bookmarks_outlined),
+            ),
+            IconButton(
+              tooltip: 'AI 总结',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => context.push('/book/${book.id}/ai'),
+              icon: const Icon(Icons.psychology_alt_outlined),
+            ),
             const SizedBox(width: 4),
             OutlinedButton.icon(
               onPressed: controller.stopSpeech,

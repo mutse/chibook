@@ -65,9 +65,18 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                         icon: const Icon(Icons.toc_rounded),
                       ),
                       IconButton(
-                        onPressed: () =>
-                            context.push('/book/${book.id}?tab=summary'),
+                        onPressed: () => context.push('/book/${book.id}/ai'),
                         icon: const Icon(Icons.auto_awesome_rounded),
+                      ),
+                      IconButton(
+                        onPressed: () =>
+                            context.push('/book/${book.id}/notebook'),
+                        icon: const Icon(Icons.sticky_note_2_outlined),
+                      ),
+                      IconButton(
+                        onPressed: () =>
+                            context.push('/book/${book.id}/playlist'),
+                        icon: const Icon(Icons.queue_music_rounded),
                       ),
                       IconButton(
                         onPressed: () => _showBookActions(book),
@@ -86,6 +95,8 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                       context.go('/player');
                     },
                   ),
+                  const SizedBox(height: 16),
+                  _BookActionGrid(book: book),
                   const SizedBox(height: 16),
                   _SegmentRail(
                     selectedTab: _selectedTab,
@@ -306,6 +317,96 @@ class _BookHero extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _BookActionGrid extends StatelessWidget {
+  const _BookActionGrid({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      (
+        'AI 总结',
+        '先看重点',
+        Icons.auto_awesome_rounded,
+        () => context.push('/book/${book.id}/ai'),
+      ),
+      (
+        '思维导图',
+        '压缩结构',
+        Icons.account_tree_outlined,
+        () => context.push('/book/${book.id}/ai?tab=mindmap'),
+      ),
+      (
+        'AI 问书',
+        '继续追问',
+        Icons.chat_bubble_outline_rounded,
+        () => context.push('/book/${book.id}/ai?tab=ask'),
+      ),
+      (
+        '划线笔记',
+        '保存想法',
+        Icons.sticky_note_2_outlined,
+        () => context.push('/book/${book.id}/notebook'),
+      ),
+      (
+        '播放列表',
+        '按章节听',
+        Icons.queue_music_rounded,
+        () => context.push('/book/${book.id}/playlist'),
+      ),
+    ];
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: items.map((item) {
+        return SizedBox(
+          width: (MediaQuery.sizeOf(context).width - 52) / 2,
+          child: LiquidGlassCard(
+            radius: 22,
+            onTap: item.$4,
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(item.$3, color: const Color(0xFF5D7CFF)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.$1,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.$2,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
