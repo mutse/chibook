@@ -11,6 +11,7 @@ import 'package:chibook/features/downloads/presentation/downloads_screen.dart';
 import 'package:chibook/features/player/presentation/player_screen.dart';
 import 'package:chibook/features/profile/presentation/profile_screen.dart';
 import 'package:chibook/features/reader/presentation/reader_screen.dart';
+import 'package:chibook/features/reader/presentation/reader_preferences_screen.dart';
 import 'package:chibook/features/settings/presentation/settings_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -88,6 +89,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             },
           );
         },
+      ),
+      GoRoute(
+        path: '/reader-settings',
+        builder: (context, state) => const ReaderPreferencesScreen(),
       ),
       GoRoute(
         path: '/reader/:bookId',

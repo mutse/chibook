@@ -344,6 +344,13 @@ class ProfileScreen extends ConsumerWidget {
                         ),
                         const Divider(height: 1),
                         _ProfileTile(
+                          icon: Icons.text_fields_rounded,
+                          title: '阅读设置',
+                          subtitle: '调整亮度、字体、主题和翻页方式',
+                          onTap: () => context.push('/reader-settings'),
+                        ),
+                        const Divider(height: 1),
+                        _ProfileTile(
                           icon: Icons.menu_book_rounded,
                           title: '管理书架',
                           subtitle: '查看在读、完成和最近导入的全部书籍',

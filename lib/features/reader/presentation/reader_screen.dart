@@ -8,7 +8,6 @@ import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_preferences_controller.dart';
 import 'package:chibook/features/reader/presentation/widgets/epub_reader_view.dart';
 import 'package:chibook/features/reader/presentation/widgets/pdf_reader_view.dart';
-import 'package:chibook/features/reader/presentation/widgets/reader_preferences_sheet.dart';
 import 'package:chibook/features/settings/application/speech_settings_controller.dart';
 import 'package:chibook/services/reader_speech_service.dart';
 import 'package:flutter/material.dart';
@@ -43,30 +42,45 @@ class ReaderScreen extends ConsumerWidget {
               builder: (context, constraints) {
                 final isLandscape =
                     constraints.maxWidth > constraints.maxHeight;
-                return Column(
+                final brightnessAlpha =
+                    ((1 - preferences.brightness).clamp(0.0, 0.55) * 0.72)
+                        .toDouble();
+                return Stack(
                   children: [
-                    _ReaderHeader(
-                      book: book,
-                      colors: screenColors,
-                      isLandscape: isLandscape,
+                    Column(
+                      children: [
+                        _ReaderHeader(
+                          book: book,
+                          colors: screenColors,
+                          isLandscape: isLandscape,
+                        ),
+                        Expanded(
+                          child: switch (book.format) {
+                            BookFormat.pdf => PdfReaderView(
+                                book: book,
+                                compact: isLandscape,
+                              ),
+                            BookFormat.epub => EpubReaderView(
+                                book: book,
+                                compact: isLandscape,
+                              ),
+                          },
+                        ),
+                        _SpeechBar(
+                          book: book,
+                          colors: screenColors,
+                          isLandscape: isLandscape,
+                        ),
+                      ],
                     ),
-                    Expanded(
-                      child: switch (book.format) {
-                        BookFormat.pdf => PdfReaderView(
-                            book: book,
-                            compact: isLandscape,
-                          ),
-                        BookFormat.epub => EpubReaderView(
-                            book: book,
-                            compact: isLandscape,
-                          ),
-                      },
-                    ),
-                    _SpeechBar(
-                      book: book,
-                      colors: screenColors,
-                      isLandscape: isLandscape,
-                    ),
+                    if (brightnessAlpha > 0)
+                      IgnorePointer(
+                        child: ColoredBox(
+                          color:
+                              Colors.black.withValues(alpha: brightnessAlpha),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -109,13 +123,7 @@ class _ReaderHeader extends ConsumerWidget {
       child: Row(
         children: [
           IconButton(
-            onPressed: () {
-              showModalBottomSheet<void>(
-                context: context,
-                showDragHandle: true,
-                builder: (context) => const ReaderPreferencesSheet(),
-              );
-            },
+            onPressed: () => context.push('/reader-settings'),
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
             icon: Icon(Icons.palette_outlined, color: colors.foreground),

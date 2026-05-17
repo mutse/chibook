@@ -118,6 +118,7 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                 Expanded(
                   child: ListView(
                     controller: _scrollController,
+                    physics: _scrollPhysics(preferences.pageTurnMode),
                     padding: EdgeInsets.fromLTRB(
                       18,
                       widget.compact ? 16 : 20,
@@ -127,11 +128,17 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                     children: [
                       Text(
                         chapter.title,
-                        style:
-                            Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: colors.primaryText,
-                                ),
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: colors.primaryText,
+                              fontFamily:
+                                  readerFontFamily(preferences.fontPreset),
+                              letterSpacing:
+                                  readerLetterSpacing(preferences.fontPreset),
+                            ),
                       ),
                       const SizedBox(height: 18),
                       ..._buildSpeechSegments(
@@ -263,6 +270,9 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                       fontSize: preferences.fontSize,
                       height: preferences.lineHeight,
                       color: colors.primaryText,
+                      fontFamily: readerFontFamily(preferences.fontPreset),
+                      letterSpacing:
+                          readerLetterSpacing(preferences.fontPreset),
                     ),
               ),
             ),
@@ -313,6 +323,17 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
         alignment: 0.2,
       );
     });
+  }
+
+  ScrollPhysics _scrollPhysics(ReaderPageTurnMode mode) {
+    return switch (mode) {
+      ReaderPageTurnMode.cover => const ClampingScrollPhysics(),
+      ReaderPageTurnMode.simulation => const BouncingScrollPhysics(),
+      ReaderPageTurnMode.slide => const PageScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+      ReaderPageTurnMode.none => const ClampingScrollPhysics(),
+    };
   }
 
   _ReaderThemeColors _themeColors(ReaderThemeMode mode) {
