@@ -10,6 +10,8 @@ import 'package:chibook/features/discover/presentation/discover_screen.dart';
 import 'package:chibook/features/downloads/presentation/downloads_screen.dart';
 import 'package:chibook/features/player/presentation/player_screen.dart';
 import 'package:chibook/features/profile/presentation/profile_screen.dart';
+import 'package:chibook/features/profile/presentation/reading_history_screen.dart';
+import 'package:chibook/features/profile/presentation/sync_center_screen.dart';
 import 'package:chibook/features/reader/presentation/reader_screen.dart';
 import 'package:chibook/features/reader/presentation/reader_preferences_screen.dart';
 import 'package:chibook/features/settings/presentation/settings_screen.dart';
@@ -133,6 +135,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/downloads',
         builder: (context, state) => const DownloadsScreen(),
+      ),
+      GoRoute(
+        path: '/history',
+        builder: (context, state) => const ReadingHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/sync',
+        builder: (context, state) => const SyncCenterScreen(),
       ),
       GoRoute(
         path: '/settings',

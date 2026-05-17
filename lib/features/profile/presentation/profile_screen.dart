@@ -1,7 +1,7 @@
 import 'package:chibook/app/liquid_ui.dart';
+import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
-import 'package:chibook/features/settings/application/speech_settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,7 +12,6 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final booksAsync = ref.watch(bookshelfControllerProvider);
-    final settings = ref.watch(speechSettingsControllerProvider).valueOrNull;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -28,6 +27,7 @@ class ProfileScreen extends ConsumerWidget {
                       : '0.${(insights.listenedMinutes / 6).round().clamp(1, 9)}';
               final recentBooks = sortBooksByRecent(books);
               final recentBook = recentBooks.isEmpty ? null : recentBooks.first;
+              final historyPreview = recentBooks.take(3).toList();
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
@@ -110,7 +110,7 @@ class ProfileScreen extends ConsumerWidget {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        '当前音色: ${settings?.voice.isNotEmpty == true ? settings!.voice : '系统默认'}',
+                                        'ID: CHI-${(books.length + 123450).toString().padLeft(6, '0')}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: Theme.of(context)
@@ -236,6 +236,45 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 18),
                   LiquidGlassCard(
+                    colors: const [
+                      Color(0xFFFFF6E3),
+                      Color(0xFFFDE7B9),
+                      Color(0xFFFFF8EB),
+                    ],
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '会员中心',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '开通后可优先体验 AI 听书增强能力、更多音色和更完整的跨端体验。',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyLarge
+                                    ?.copyWith(height: 1.6),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton(
+                          onPressed: () => context.push('/settings'),
+                          child: const Text('立即开通'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  LiquidGlassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -314,6 +353,82 @@ class ProfileScreen extends ConsumerWidget {
                   const SizedBox(height: 18),
                   LiquidGlassCard(
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SectionHeader(
+                          title: '阅读历史',
+                          actionLabel: historyPreview.isEmpty ? null : '查看全部',
+                          onTap: historyPreview.isEmpty
+                              ? null
+                              : () => context.push('/history'),
+                        ),
+                        const SizedBox(height: 8),
+                        if (historyPreview.isEmpty)
+                          Text(
+                            '最近没有可展示的阅读记录，导入一本书之后这里会出现最近足迹。',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyLarge
+                                ?.copyWith(height: 1.6),
+                          )
+                        else
+                          ...historyPreview.map(
+                            (book) => Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: _HistoryPreviewTile(book: book),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  LiquidGlassCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SectionHeader(
+                          title: '云端同步',
+                          actionLabel: '查看状态',
+                          onTap: () => context.push('/sync'),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          books.isEmpty
+                              ? '当前还没有本地书籍记录。导入后，这里会展示跨端状态和同步准备情况。'
+                              : '当前以本地阅读为主，跨端同步中心已预留入口和状态页，后续接入真实账户体系后可直接承接。',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(height: 1.6),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: _MetricCard(
+                                icon: Icons.language_rounded,
+                                label: '支持平台',
+                                value: '3',
+                                unit: '端',
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _MetricCard(
+                                icon: Icons.cloud_done_rounded,
+                                label: '准备同步',
+                                value: '${books.length}',
+                                unit: '本',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  LiquidGlassCard(
+                    child: Column(
                       children: [
                         _ProfileTile(
                           icon: Icons.file_upload_outlined,
@@ -365,10 +480,24 @@ class ProfileScreen extends ConsumerWidget {
                         ),
                         const Divider(height: 1),
                         _ProfileTile(
+                          icon: Icons.history_rounded,
+                          title: '阅读历史',
+                          subtitle: '回看最近打开的书和阅读轨迹',
+                          onTap: () => context.push('/history'),
+                        ),
+                        const Divider(height: 1),
+                        _ProfileTile(
                           icon: Icons.download_rounded,
                           title: '下载管理',
                           subtitle: '查看离线缓存与占用空间',
                           onTap: () => context.push('/downloads'),
+                        ),
+                        const Divider(height: 1),
+                        _ProfileTile(
+                          icon: Icons.cloud_sync_outlined,
+                          title: '云端同步',
+                          subtitle: '查看跨设备支持与同步准备状态',
+                          onTap: () => context.push('/sync'),
                         ),
                         const Divider(height: 1),
                         _ProfileTile(
@@ -393,6 +522,71 @@ class ProfileScreen extends ConsumerWidget {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (error, stack) => Center(child: Text('加载我的页面失败: $error')),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryPreviewTile extends StatelessWidget {
+  const _HistoryPreviewTile({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => context.push('/book/${book.id}'),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            BookCoverArt(
+              book: book,
+              width: 46,
+              height: 64,
+              radius: 12,
+              showMeta: false,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    book.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    book.lastReadAt == null
+                        ? '导入于 ${recencyLabel(book.importedAt)}'
+                        : '最近打开 ${recencyLabel(book.lastReadAt)}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF647196),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              progressLabel(book),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: const Color(0xFF5D7CFF),
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
         ),
       ),
     );

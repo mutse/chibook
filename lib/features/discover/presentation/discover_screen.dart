@@ -2,6 +2,7 @@ import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
+import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -55,6 +56,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
                   _mixOffset = 0;
                 });
               },
+              onImport: () => _importBook(context, ref),
             ),
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (error, stack) => Center(child: Text('加载发现页失败: $error')),
@@ -62,6 +64,21 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _importBook(BuildContext context, WidgetRef ref) async {
+    try {
+      final book =
+          await ref.read(bookshelfControllerProvider.notifier).importBook();
+      if (book != null && context.mounted) {
+        context.push('/book/${book.id}');
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败，请重试: $error')),
+      );
+    }
   }
 }
 
@@ -75,6 +92,7 @@ class _DiscoverBody extends StatelessWidget {
     required this.onShuffle,
     required this.selectedCategory,
     required this.onSelectCategory,
+    required this.onImport,
   });
 
   final List<Book> books;
@@ -85,6 +103,7 @@ class _DiscoverBody extends StatelessWidget {
   final VoidCallback onShuffle;
   final String selectedCategory;
   final ValueChanged<String> onSelectCategory;
+  final Future<void> Function() onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -119,6 +138,8 @@ class _DiscoverBody extends StatelessWidget {
             rankedBooks.length < 4 ? rankedBooks.length : 4,
             (index) => rankedBooks[(mixOffset + index) % rankedBooks.length],
           );
+    final aiPicks = rankedBooks.take(2).toList();
+    final editorCollections = _buildCollections(recentBooks, selectedCategory);
     final hasQuery = searchQuery.trim().isNotEmpty;
 
     return CustomScrollView(
@@ -135,6 +156,21 @@ class _DiscoverBody extends StatelessWidget {
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '从你的书架里继续找下一本值得打开的内容。',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () async => onImport(),
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 AppSearchBar(
@@ -170,6 +206,7 @@ class _DiscoverBody extends StatelessWidget {
                   activeCategory: selectedCategory,
                   categories: categories,
                   onSelectCategory: onSelectCategory,
+                  onImport: onImport,
                 ),
               ],
             ),
@@ -180,17 +217,48 @@ class _DiscoverBody extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
               child: LiquidGlassCard(
-                child: Text(
-                  '当前关键词没有匹配内容，换个作者名、分类或者先去导入更多书籍试试。',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(height: 1.6),
+                child: Column(
+                  children: [
+                    Text(
+                      '当前关键词没有匹配内容，换个作者名、分类或者先去导入更多书籍试试。',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(height: 1.6),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () async => onImport(),
+                      icon: const Icon(Icons.file_upload_outlined),
+                      label: const Text('导入书籍'),
+                    ),
+                  ],
                 ),
               ),
             ),
           )
         else ...[
+          if (aiPicks.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: SectionHeader(
+                  title: 'AI 为你推荐',
+                  actionLabel: '${aiPicks.length} 本',
+                ),
+              ),
+            ),
+          if (aiPicks.isNotEmpty)
+            SliverList.builder(
+              itemCount: aiPicks.length,
+              itemBuilder: (context, index) {
+                final book = aiPicks[index];
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: _AiPickCard(book: book),
+                );
+              },
+            ),
           if (featured.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
@@ -215,6 +283,27 @@ class _DiscoverBody extends StatelessWidget {
                 ),
               ),
             ),
+          if (editorCollections.isNotEmpty) ...[
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: SectionHeader(title: '编辑精选'),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 144,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: editorCollections.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) =>
+                      _CollectionCard(collection: editorCollections[index]),
+                ),
+              ),
+            ),
+          ],
           if (continueBooks.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
@@ -310,6 +399,40 @@ class _DiscoverBody extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  List<_CollectionData> _buildCollections(
+    List<Book> books,
+    String selectedCategory,
+  ) {
+    final categories =
+        books.map(pseudoCategoryForBook).toSet().take(3).toList();
+    final effectiveCategories =
+        categories.isEmpty ? ['个人成长', '历史', '心理学'] : categories;
+    return effectiveCategories.map((category) {
+      final matching = books
+          .where((book) => pseudoCategoryForBook(book) == category)
+          .take(2)
+          .toList();
+      return _CollectionData(
+        title: category == selectedCategory ? '$category 精选' : '$category 听单',
+        subtitle: matching.isEmpty
+            ? '先导入更多书籍后生成'
+            : matching.map((book) => book.title).join(' · '),
+        icon: switch (category) {
+          '个人成长' => Icons.person_rounded,
+          '心理学' => Icons.psychology_rounded,
+          '管理' => Icons.workspaces_rounded,
+          '历史' => Icons.history_edu_rounded,
+          '经济' => Icons.trending_up_rounded,
+          '小说' => Icons.auto_stories_rounded,
+          _ => Icons.library_books_rounded,
+        },
+        colors: category == selectedCategory
+            ? const [Color(0xFF5D7CFF), Color(0xFF84C9FF)]
+            : const [Color(0xFFEAF2FF), Color(0xFFCEDFFF)],
+      );
+    }).toList();
   }
 }
 
@@ -435,12 +558,14 @@ class _DiscoverHero extends StatelessWidget {
     required this.activeCategory,
     required this.categories,
     required this.onSelectCategory,
+    required this.onImport,
   });
 
   final int bookCount;
   final String activeCategory;
   final List<String> categories;
   final ValueChanged<String> onSelectCategory;
+  final Future<void> Function() onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -543,6 +668,26 @@ class _DiscoverHero extends StatelessWidget {
                 minHeight: 6,
               ),
               const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () async => onImport(),
+                      icon: const Icon(Icons.file_upload_outlined),
+                      label: Text(bookCount == 0 ? '导入书籍' : '继续扩充书架'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => onSelectCategory('全部'),
+                      icon: const Icon(Icons.auto_awesome_rounded),
+                      label: const Text('重置推荐'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
@@ -559,6 +704,177 @@ class _DiscoverHero extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AiPickCard extends ConsumerWidget {
+  const _AiPickCard({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return LiquidGlassCard(
+      radius: 28,
+      colors: const [Color(0xEEFFFFFF), Color(0xB6E9F6FF)],
+      child: Column(
+        children: [
+          Row(
+            children: [
+              BookCoverArt(
+                book: book,
+                width: 76,
+                height: 106,
+                radius: 20,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '推荐理由',
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: const Color(0xFF5D7CFF),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      book.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${book.author} · ${pseudoCategoryForBook(book)}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      book.progress > 0
+                          ? '你已经打开过这本书，适合从上次停下的位置继续。'
+                          : '它的主题和你最近在看的内容更接近，适合当下一口气进入。',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            height: 1.6,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: () => context.push('/book/${book.id}/ai'),
+                  icon: const Icon(Icons.auto_awesome_rounded),
+                  label: const Text('看 AI 总结'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    await ref
+                        .read(readerControllerProvider)
+                        .playAutoForCurrentBook(book);
+                    if (!context.mounted) return;
+                    context.go('/player');
+                  },
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('立即收听'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CollectionData {
+  const _CollectionData({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.colors,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> colors;
+}
+
+class _CollectionCard extends StatelessWidget {
+  const _CollectionCard({required this.collection});
+
+  final _CollectionData collection;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = collection.colors.first.computeLuminance() < 0.5;
+    final foreground = isDark ? Colors.white : const Color(0xFF23314B);
+    return LiquidGlassCard(
+      radius: 28,
+      colors: collection.colors,
+      child: SizedBox(
+        width: 220,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(collection.icon, color: foreground),
+            ),
+            const Spacer(),
+            Text(
+              collection.title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              collection.subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.80)
+                        : const Color(0xFF5B6786),
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
