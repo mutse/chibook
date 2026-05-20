@@ -379,7 +379,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    pseudoCategoryForBook(currentBook),
+                    currentBook.formatLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.white.withValues(alpha: 0.68),
                         ),

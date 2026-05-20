@@ -1,16 +1,18 @@
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:chibook/services/secure_settings_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SpeechSettingsStorageKeys {
   static const providerMode = 'speech_output_mode';
   static const cloudProvider = 'cloud_tts_provider';
-  static const endpoint = 'cloud_tts_endpoint';
-  static const apiKey = 'cloud_tts_api_key';
   static const model = 'cloud_tts_model';
   static const voice = 'cloud_tts_voice';
   static const localVoiceId = 'local_tts_voice_id';
   static const speed = 'cloud_tts_speed';
   static const localSpeechRate = 'local_tts_speech_rate';
+
+  static const endpointSecure = 'secure_cloud_tts_endpoint';
+  static const apiKeySecure = 'secure_cloud_tts_api_key';
 
   static const legacyProviderMode = 'tts_provider_mode';
   static const legacyCloudProvider = 'tts_cloud_provider';
@@ -24,7 +26,12 @@ class SpeechSettingsStorageKeys {
 }
 
 class SpeechSettingsService {
-  const SpeechSettingsService();
+  SpeechSettingsService({
+    SecureSettingsService? secureSettingsService,
+  }) : _secureSettingsService =
+            secureSettingsService ?? SecureSettingsService();
+
+  final SecureSettingsService _secureSettingsService;
 
   Future<SpeechSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -45,21 +52,27 @@ class SpeechSettingsService {
     final defaultEndpoint = SpeechSettings.defaultEndpointFor(cloudProvider);
     final defaultModel = SpeechSettings.defaultModelFor(cloudProvider);
     final defaultVoice = SpeechSettings.defaultVoiceFor(cloudProvider);
-    final rawEndpoint = _readString(
+    final legacyEndpoint = _readString(
       prefs,
-      SpeechSettingsStorageKeys.endpoint,
+      SpeechSettingsStorageKeys.legacyEndpoint,
       SpeechSettingsStorageKeys.legacyEndpoint,
     );
+    final secureEndpoint =
+        await _secureSettingsService.read(SpeechSettingsStorageKeys.endpointSecure);
+    final secureApiKey =
+        await _secureSettingsService.read(SpeechSettingsStorageKeys.apiKeySecure);
 
     return defaults.copyWith(
       providerMode: providerMode,
       cloudProvider: cloudProvider,
-      endpoint: rawEndpoint == null
-          ? defaultEndpoint
-          : SpeechSettings.normalizeEndpointFor(cloudProvider, rawEndpoint),
-      apiKey: _readString(
+      endpoint: SpeechSettings.normalizeEndpointFor(
+        cloudProvider,
+        secureEndpoint ?? legacyEndpoint ?? defaultEndpoint,
+      ),
+      apiKey: secureApiKey ??
+          _readString(
             prefs,
-            SpeechSettingsStorageKeys.apiKey,
+            SpeechSettingsStorageKeys.legacyApiKey,
             SpeechSettingsStorageKeys.legacyApiKey,
           ) ??
           defaults.apiKey,
@@ -112,14 +125,17 @@ class SpeechSettingsService {
       SpeechSettingsStorageKeys.cloudProvider,
       settings.cloudProvider.name,
     );
-    await prefs.setString(
-      SpeechSettingsStorageKeys.endpoint,
+    await _secureSettingsService.write(
+      SpeechSettingsStorageKeys.endpointSecure,
       SpeechSettings.normalizeEndpointFor(
         settings.cloudProvider,
         settings.endpoint,
       ),
     );
-    await prefs.setString(SpeechSettingsStorageKeys.apiKey, settings.apiKey);
+    await _secureSettingsService.write(
+      SpeechSettingsStorageKeys.apiKeySecure,
+      settings.apiKey,
+    );
     await prefs.setString(
       SpeechSettingsStorageKeys.model,
       SpeechSettings.normalizeModelFor(
@@ -156,6 +172,9 @@ class SpeechSettingsService {
 
   CloudTtsProvider? _parseCloudProvider(String? value) {
     if (value == null || value.isEmpty) return null;
+    if (value == 'microsoftEdge') {
+      return CloudTtsProvider.azureSpeech;
+    }
     for (final provider in CloudTtsProvider.values) {
       if (provider.name == value) return provider;
     }

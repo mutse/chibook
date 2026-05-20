@@ -59,9 +59,11 @@ List<Book> sortBooksForShelf(
 }
 
 int estimateBookMinutes(Book book) {
-  final units =
-      book.totalLocations > 0 ? book.totalLocations : book.title.length * 18;
-  return (units / 28).round().clamp(12, 180);
+  if (book.format == BookFormat.pdf && book.pageCount > 0) {
+    return (book.pageCount * 2).clamp(12, 600);
+  }
+  final units = book.totalLocations > 0 ? book.totalLocations : 1200;
+  return (units / 950).round().clamp(12, 600);
 }
 
 int estimateConsumedMinutes(Book book) {

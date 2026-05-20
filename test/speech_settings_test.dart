@@ -1,39 +1,59 @@
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:chibook/services/secure_settings_service.dart';
 import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class _FakeSecureSettingsService extends SecureSettingsService {
+  _FakeSecureSettingsService(this._values);
+
+  final Map<String, String> _values;
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    _values.remove(key);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('default speech settings prefer microsoft edge without api key', () {
+  test('default speech settings prefer local mode with azure speech preset', () {
     final settings = SpeechSettings.defaults();
 
-    expect(settings.providerMode, SpeechProviderMode.auto);
-    expect(settings.cloudProvider, CloudTtsProvider.microsoftEdge);
+    expect(settings.providerMode, SpeechProviderMode.local);
+    expect(settings.cloudProvider, CloudTtsProvider.azureSpeech);
     expect(
       settings.endpoint,
-      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech),
     );
     expect(settings.apiKey, isEmpty);
     expect(
       settings.model,
-      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultModelFor(CloudTtsProvider.azureSpeech),
     );
     expect(
       settings.voice,
-      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.azureSpeech),
     );
-    expect(settings.hasCloudConfig, isTrue);
+    expect(settings.hasCloudConfig, isFalse);
   });
 
-  test('microsoft edge cloud config does not require an api key', () {
+  test('azure speech cloud config requires an api key', () {
     const settings = SpeechSettings(
       providerMode: SpeechProviderMode.cloud,
-      cloudProvider: CloudTtsProvider.microsoftEdge,
+      cloudProvider: CloudTtsProvider.azureSpeech,
       endpoint:
-          'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
-      apiKey: '',
+          'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
+      apiKey: 'azure-key',
       model: 'audio-24khz-48kbitrate-mono-mp3',
       voice: 'zh-CN-XiaoxiaoNeural',
       localVoiceId: '',
@@ -47,32 +67,32 @@ void main() {
 
   test('legacy microsoft edge endpoint normalizes to edge read aloud', () {
     final endpoint = SpeechSettings.normalizeEndpointFor(
-      CloudTtsProvider.microsoftEdge,
+      CloudTtsProvider.azureSpeech,
       'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
     );
 
     expect(
       endpoint,
-      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech),
     );
   });
 
   test('microsoft edge voices list endpoint normalizes to websocket endpoint',
       () {
     final endpoint = SpeechSettings.normalizeEndpointFor(
-      CloudTtsProvider.microsoftEdge,
+      CloudTtsProvider.azureSpeech,
       'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=test',
     );
 
     expect(
       endpoint,
-      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech),
     );
   });
 
   test('microsoft edge voice normalizes azure display name', () {
     final voice = SpeechSettings.normalizeVoiceFor(
-      CloudTtsProvider.microsoftEdge,
+      CloudTtsProvider.azureSpeech,
       'Microsoft Server Speech Text to Speech Voice (en-US, JennyNeural)',
     );
 
@@ -82,13 +102,13 @@ void main() {
   test('microsoft edge voice falls back when another provider voice is saved',
       () {
     final voice = SpeechSettings.normalizeVoiceFor(
-      CloudTtsProvider.microsoftEdge,
+      CloudTtsProvider.azureSpeech,
       'alloy',
     );
 
     expect(
       voice,
-      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.azureSpeech),
     );
   });
 
@@ -119,37 +139,40 @@ void main() {
   test('microsoft edge model falls back when another provider model is saved',
       () {
     final model = SpeechSettings.normalizeModelFor(
-      CloudTtsProvider.microsoftEdge,
+      CloudTtsProvider.azureSpeech,
       'gpt-4o-mini-tts',
     );
 
     expect(
       model,
-      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultModelFor(CloudTtsProvider.azureSpeech),
     );
   });
 
-  test('service load uses provider-specific defaults for microsoft edge',
+  test('service load normalizes legacy microsoft edge into azure speech preset',
       () async {
     SharedPreferences.setMockInitialValues({
       SpeechSettingsStorageKeys.cloudProvider:
           CloudTtsProvider.microsoftEdge.name,
     });
+    final secureSettings = _FakeSecureSettingsService({});
 
-    final settings = await const SpeechSettingsService().load();
+    final settings = await SpeechSettingsService(
+      secureSettingsService: secureSettings,
+    ).load();
 
-    expect(settings.cloudProvider, CloudTtsProvider.microsoftEdge);
+    expect(settings.cloudProvider, CloudTtsProvider.azureSpeech);
     expect(
       settings.endpoint,
-      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech),
     );
     expect(
       settings.model,
-      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultModelFor(CloudTtsProvider.azureSpeech),
     );
     expect(
       settings.voice,
-      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.azureSpeech),
     );
     expect(settings.apiKey, isEmpty);
   });
@@ -160,36 +183,42 @@ void main() {
           CloudTtsProvider.microsoftEdge.name,
       SpeechSettingsStorageKeys.model: 'gpt-4o-mini-tts',
       SpeechSettingsStorageKeys.voice: 'alloy',
-      SpeechSettingsStorageKeys.endpoint:
+      SpeechSettingsStorageKeys.legacyEndpoint:
           'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
     });
+    final secureSettings = _FakeSecureSettingsService({});
 
-    final settings = await const SpeechSettingsService().load();
+    final settings = await SpeechSettingsService(
+      secureSettingsService: secureSettings,
+    ).load();
 
     expect(
       settings.endpoint,
-      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech),
     );
     expect(
       settings.model,
-      SpeechSettings.defaultModelFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultModelFor(CloudTtsProvider.azureSpeech),
     );
     expect(
       settings.voice,
-      SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultVoiceFor(CloudTtsProvider.azureSpeech),
     );
   });
 
-  test('service load defaults reader-facing provider to microsoft edge',
+  test('service load defaults reader-facing provider to azure speech',
       () async {
     SharedPreferences.setMockInitialValues({});
+    final secureSettings = _FakeSecureSettingsService({});
 
-    final settings = await const SpeechSettingsService().load();
+    final settings = await SpeechSettingsService(
+      secureSettingsService: secureSettings,
+    ).load();
 
-    expect(settings.cloudProvider, CloudTtsProvider.microsoftEdge);
+    expect(settings.cloudProvider, CloudTtsProvider.azureSpeech);
     expect(
       settings.endpoint,
-      SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge),
+      SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech),
     );
   });
 }

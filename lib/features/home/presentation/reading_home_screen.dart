@@ -76,20 +76,26 @@ class _HomeBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final recentBooks = sortBooksByRecent(books);
     final queryMatchedBooks = filterBooksByQuery(recentBooks, searchQuery);
+    final recentCutoff = DateTime.now().subtract(const Duration(days: 14));
     final categories = [
       '全部',
-      '个人成长',
-      '心理学',
-      '管理',
-      '历史',
-      '经济',
-      '小说',
+      '最近导入',
+      '在读',
+      '已读完',
+      'EPUB',
+      'PDF',
     ];
-    final filteredBooks = selectedCategory == '全部'
-        ? queryMatchedBooks
-        : queryMatchedBooks
-            .where((book) => pseudoCategoryForBook(book) == selectedCategory)
-            .toList();
+    final filteredBooks = queryMatchedBooks.where((book) {
+      return switch (selectedCategory) {
+        '全部' => true,
+        '最近导入' => book.importedAt.isAfter(recentCutoff),
+        '在读' => book.progress > 0 && book.progress < 1,
+        '已读完' => book.progress >= 1,
+        'EPUB' => book.format == BookFormat.epub,
+        'PDF' => book.format == BookFormat.pdf,
+        _ => true,
+      };
+    }).toList();
     final hasQuery = searchQuery.trim().isNotEmpty;
     final featured = filteredBooks.isNotEmpty ? filteredBooks.first : null;
     final continueCandidates = hasQuery ? filteredBooks : recentBooks;
@@ -210,7 +216,7 @@ class _HomeBody extends ConsumerWidget {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      '可以试试作者名、分类，或者先去导入更多书籍。',
+                      '可以试试作者名、格式筛选，或者先去导入更多书籍。',
                       textAlign: TextAlign.center,
                       style: Theme.of(context)
                           .textTheme
@@ -234,7 +240,7 @@ class _HomeBody extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
               child: SectionHeader(
-                title: hasQuery ? '搜索结果' : '为你推荐',
+                title: hasQuery ? '搜索结果' : '推荐继续阅读',
                 actionLabel: '去发现',
                 onTap: () => context.go('/discover'),
               ),
@@ -245,7 +251,7 @@ class _HomeBody extends ConsumerWidget {
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 20),
                 child: LiquidGlassCard(
-                  child: Text('导入几本书后，这里会根据最近阅读自动生成推荐卡片。'),
+                  child: Text('导入几本书后，这里会根据最近导入和阅读进度生成真实入口。'),
                 ),
               ),
             )
@@ -332,7 +338,7 @@ class _HomeBody extends ConsumerWidget {
                           SizedBox(
                             width: 152,
                             child: Text(
-                              '${book.author} · ${pseudoCategoryForBook(book)}',
+                              '${book.author} · ${book.formatLabel}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodyMedium,
@@ -397,14 +403,14 @@ class _HomeHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'AI 听书',
+                'Chibook',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
               ),
               const SizedBox(height: 4),
               Text(
-                '让知识随时被听见，也更容易开始',
+                '沉浸式阅读与听书，从本地书库直接开始',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
@@ -488,7 +494,7 @@ class _HeroCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: const Text(
-                        '每天 15 分钟听一个重点',
+                        '本地导入 · EPUB / PDF',
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
@@ -515,8 +521,8 @@ class _HeroCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   book == null
-                      ? '首页会优先展示当前最值得继续听的内容，播放器、目录和 AI 摘要也会跟着联动。'
-                      : '${book!.author} · ${pseudoCategoryForBook(book!)} · ${estimatedListenLabel(book!)}',
+                      ? '导入后这里会优先展示最近阅读、在读内容和可继续朗读的书籍。'
+                      : '${book!.author} · ${book!.formatLabel} · ${estimatedListenLabel(book!)}',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: Colors.white.withValues(alpha: 0.88),
                         height: 1.5,
@@ -531,7 +537,7 @@ class _HeroCard extends StatelessWidget {
                         backgroundColor: Colors.white,
                         foregroundColor: const Color(0xFF5067DA),
                       ),
-                      child: const Text('立即收听'),
+                      child: const Text('立即朗读'),
                     ),
                     const SizedBox(width: 10),
                     OutlinedButton(
@@ -570,7 +576,7 @@ class _HeroCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        'AI 语音中',
+                        '本地朗读已就绪',
                         style:
                             Theme.of(context).textTheme.labelMedium?.copyWith(
                                   color: Colors.white,
@@ -602,18 +608,18 @@ class _QuickActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       (
-        'AI 摘要',
-        Icons.auto_awesome_rounded,
+        '继续阅读',
+        Icons.menu_book_rounded,
         featured == null
             ? null
-            : () => context.push('/book/${featured!.id}?tab=summary'),
+            : () => context.push('/book/${featured!.id}'),
       ),
       (
-        '目录速览',
-        Icons.toc_rounded,
+        '播放列表',
+        Icons.queue_music_rounded,
         featured == null
             ? null
-            : () => context.push('/book/${featured!.id}?tab=toc'),
+            : () => context.push('/book/${featured!.id}/playlist'),
       ),
       ('发现', Icons.explore_outlined, () => context.go('/discover')),
       ('书架', Icons.menu_book_outlined, () => context.go('/bookshelf')),
@@ -778,7 +784,7 @@ class _RecommendationTile extends ConsumerWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${book.author} · ${pseudoCategoryForBook(book)}',
+                  '${book.author} · ${book.formatLabel}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 10),
@@ -830,7 +836,7 @@ class _InsightCard extends StatelessWidget {
     return LiquidGlassCard(
       radius: 28,
       colors: const [Color(0xDFFFFFFF), Color(0xA2EEF5FF)],
-      onTap: () => context.push('/book/${book.id}?tab=summary'),
+      onTap: () => context.push('/book/${book.id}'),
       child: SizedBox(
         width: 250,
         child: Column(
@@ -846,7 +852,7 @@ class _InsightCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    'AI 摘要',
+                    book.formatLabel,
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                           color: const Color(0xFF5D7CFF),
                           fontWeight: FontWeight.w800,
@@ -855,7 +861,7 @@ class _InsightCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  pseudoCategoryForBook(book),
+                  progressLabel(book),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -871,13 +877,13 @@ class _InsightCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '适合先看 3 条摘要，再决定要不要进入完整目录或直接播放。',
+              _insightDescription(book),
               style:
                   Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
             ),
             const Spacer(),
             Text(
-              '打开摘要',
+              '打开书籍',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: const Color(0xFF5D7CFF),
                     fontWeight: FontWeight.w700,
@@ -888,4 +894,15 @@ class _InsightCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _insightDescription(Book book) {
+  final progress = (book.progress.clamp(0, 1) * 100).round();
+  if (book.chapterCount > 0) {
+    return '共 ${book.chapterCount} 章，当前进度 $progress%，适合从最近一次阅读位置继续。';
+  }
+  if (book.pageCount > 0) {
+    return '共 ${book.pageCount} 页，当前进度 $progress%，可以直接继续阅读或朗读当前内容。';
+  }
+  return '${estimatedListenLabel(book)}，当前进度 $progress%，适合继续阅读或加入播放列表。';
 }

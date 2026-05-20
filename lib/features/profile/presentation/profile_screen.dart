@@ -1,7 +1,7 @@
 import 'package:chibook/app/liquid_ui.dart';
-import 'package:chibook/data/models/book.dart';
-import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
+import 'package:chibook/features/pro/application/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +12,7 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final booksAsync = ref.watch(bookshelfControllerProvider);
+    final proAsync = ref.watch(proUnlockedProvider);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -20,14 +21,8 @@ class ProfileScreen extends ConsumerWidget {
           child: booksAsync.when(
             data: (books) {
               final insights = buildReadingInsights(books);
-              final listenedHours = insights.listenedMinutes == 0
-                  ? '0.0'
-                  : insights.listenedMinutes >= 60
-                      ? (insights.listenedMinutes / 60).toStringAsFixed(1)
-                      : '0.${(insights.listenedMinutes / 6).round().clamp(1, 9)}';
               final recentBooks = sortBooksByRecent(books);
               final recentBook = recentBooks.isEmpty ? null : recentBooks.first;
-              final historyPreview = recentBooks.take(3).toList();
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
@@ -39,554 +34,204 @@ class ProfileScreen extends ConsumerWidget {
                       Color(0xD9FFFFFF),
                       Color(0xFFE1ECFF),
                     ],
-                    child: Stack(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Positioned(
-                          right: -46,
-                          top: -46,
-                          child: Container(
-                            width: 170,
-                            height: 170,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFF78B7FF)
-                                  .withValues(alpha: 0.16),
-                            ),
-                          ),
-                        ),
-                        Column(
+                        Row(
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 68,
-                                  height: 68,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Color(0xFF80CBFF),
-                                        Color(0xFF6C7FFF),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Color(0x336C7FFF),
-                                        blurRadius: 24,
-                                        offset: Offset(0, 14),
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Icon(
-                                    Icons.person_rounded,
-                                    size: 38,
-                                    color: Colors.white,
-                                  ),
+                            Container(
+                              width: 64,
+                              height: 64,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0xFF80CBFF),
+                                    Color(0xFF6C7FFF),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
                                 ),
-                                const SizedBox(width: 14),
+                              ),
+                              child: const Icon(
+                                Icons.auto_stories_rounded,
+                                size: 34,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Chibook',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall
+                                        ?.copyWith(fontWeight: FontWeight.w800),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Your private reading and listening workspace',
+                                    style:
+                                        Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            FilledButton.tonal(
+                              onPressed: () => context.push('/pro'),
+                              child: proAsync.valueOrNull == true
+                                  ? const Text('Pro')
+                                  : const Text('Upgrade'),
+                            ),
+                          ],
+                        ),
+                        if (recentBook != null) ...[
+                          const SizedBox(height: 18),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.48),
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                            child: Row(
+                              children: [
+                                BookCoverArt(
+                                  book: recentBook,
+                                  width: 50,
+                                  height: 70,
+                                  radius: 14,
+                                  showMeta: false,
+                                ),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              '阅读爱好者',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .headlineSmall
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                            ),
-                                          ),
-                                          const _VipBadge(),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
                                       Text(
-                                        'ID: CHI-${(books.length + 123450).toString().padLeft(6, '0')}',
+                                        '最近打开',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge
+                                            ?.copyWith(
+                                              color: const Color(0xFF5D7CFF),
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        recentBook.title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: Theme.of(context)
                                             .textTheme
-                                            .bodyMedium
+                                            .titleMedium
                                             ?.copyWith(
-                                              color: const Color(0xFF647196),
+                                              fontWeight: FontWeight.w800,
                                             ),
                                       ),
-                                      const SizedBox(height: 14),
-                                      WaveformLine(
-                                        color: const Color(0xFF5D7CFF)
-                                            .withValues(alpha: 0.58),
-                                        barCount: 28,
-                                        maxHeight: 22,
-                                        minHeight: 5,
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        progressLabel(recentBook),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
                                       ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
-                            if (recentBook != null) ...[
-                              const SizedBox(height: 18),
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.48),
-                                  borderRadius: BorderRadius.circular(22),
-                                ),
-                                child: Row(
-                                  children: [
-                                    BookCoverArt(
-                                      book: recentBook,
-                                      width: 48,
-                                      height: 66,
-                                      radius: 14,
-                                      showMeta: false,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '最近在听',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .labelLarge
-                                                ?.copyWith(
-                                                  color:
-                                                      const Color(0xFF5D7CFF),
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            recentBook.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            progressLabel(recentBook),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    IconButton.filled(
-                                      onPressed: () => context.go('/player'),
-                                      icon:
-                                          const Icon(Icons.play_arrow_rounded),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 18),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _MetricCard(
-                                    icon: Icons.graphic_eq_rounded,
-                                    label: '累计听书',
-                                    value: listenedHours,
-                                    unit: '小时',
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _MetricCard(
-                                    icon: Icons.headphones_rounded,
-                                    label: '连续活跃',
-                                    value: '${insights.streakDays}',
-                                    unit: '天',
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _MetricCard(
-                                    icon: Icons.verified_rounded,
-                                    label: '本周新增',
-                                    value: '${insights.importedThisWeek}',
-                                    unit: '本',
-                                  ),
+                                IconButton.filled(
+                                  onPressed: () => context.push('/book/${recentBook.id}'),
+                                  icon: const Icon(Icons.chevron_right_rounded),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   const SizedBox(height: 18),
-                  LiquidGlassCard(
-                    colors: const [
-                      Color(0xFFFFF6E3),
-                      Color(0xFFFDE7B9),
-                      Color(0xFFFFF8EB),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _MetricCard(
+                          label: '书籍',
+                          value: '${insights.totalBooks}',
+                          unit: '本',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _MetricCard(
+                          label: '在读',
+                          value: '${insights.readingBooks}',
+                          unit: '本',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _MetricCard(
+                          label: '完成率',
+                          value: '${insights.completionRate}',
+                          unit: '%',
+                        ),
+                      ),
                     ],
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '会员中心',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '开通后可优先体验 AI 听书增强能力、更多音色和更完整的跨端体验。',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyLarge
-                                    ?.copyWith(height: 1.6),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        FilledButton(
-                          onPressed: () => context.push('/settings'),
-                          child: const Text('立即开通'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  LiquidGlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '阅读报告',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '根据书架和阅读进度自动生成你的当前画像。',
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: const Color(0xFF647196),
-                                  ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _MetricCard(
-                                icon: Icons.headphones_rounded,
-                                label: '在听书籍',
-                                value: '${insights.readingBooks}',
-                                unit: '本',
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MetricCard(
-                                icon: Icons.verified_rounded,
-                                label: '已听完',
-                                value: '${insights.finishedBooks}',
-                                unit: '本',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _MetricCard(
-                                icon: Icons.percent_rounded,
-                                label: '完成率',
-                                value: '${insights.completionRate}',
-                                unit: '%',
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MetricCard(
-                                icon: Icons.category_rounded,
-                                label: '偏爱类别',
-                                value: insights.favoriteCategory,
-                                unit: '',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          recentBook == null
-                              ? '先导入一本到两本书，阅读报告就会逐渐形成你的偏好画像。'
-                              : '最近最活跃的是《${recentBook.title}》，继续保持会让推荐更贴近你的阅读习惯。',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(height: 1.6),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  LiquidGlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SectionHeader(
-                          title: '阅读历史',
-                          actionLabel: historyPreview.isEmpty ? null : '查看全部',
-                          onTap: historyPreview.isEmpty
-                              ? null
-                              : () => context.push('/history'),
-                        ),
-                        const SizedBox(height: 8),
-                        if (historyPreview.isEmpty)
-                          Text(
-                            '最近没有可展示的阅读记录，导入一本书之后这里会出现最近足迹。',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyLarge
-                                ?.copyWith(height: 1.6),
-                          )
-                        else
-                          ...historyPreview.map(
-                            (book) => Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: _HistoryPreviewTile(book: book),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  LiquidGlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SectionHeader(
-                          title: '云端同步',
-                          actionLabel: '查看状态',
-                          onTap: () => context.push('/sync'),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          books.isEmpty
-                              ? '当前还没有本地书籍记录。导入后，这里会展示跨端状态和同步准备情况。'
-                              : '当前以本地阅读为主，跨端同步中心已预留入口和状态页，后续接入真实账户体系后可直接承接。',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(height: 1.6),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: _MetricCard(
-                                icon: Icons.language_rounded,
-                                label: '支持平台',
-                                value: '3',
-                                unit: '端',
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _MetricCard(
-                                icon: Icons.cloud_done_rounded,
-                                label: '准备同步',
-                                value: '${books.length}',
-                                unit: '本',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
                   ),
                   const SizedBox(height: 18),
                   LiquidGlassCard(
                     child: Column(
                       children: [
-                        _ProfileTile(
-                          icon: Icons.file_upload_outlined,
-                          title: '导入书籍',
-                          subtitle: '支持 EPUB / PDF，本地导入后自动加入书架',
-                          onTap: () async {
-                            try {
-                              final book = await ref
-                                  .read(bookshelfControllerProvider.notifier)
-                                  .importBook();
-                              if (book != null && context.mounted) {
-                                context.push('/book/${book.id}');
-                              }
-                            } catch (error) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('导入失败，请重试: $error')),
-                              );
-                            }
-                          },
+                        _ActionTile(
+                          icon: Icons.workspace_premium_outlined,
+                          title: 'Chibook Pro',
+                          subtitle: '解锁云端朗读、离线缓存和更多高级能力',
+                          onTap: () => context.push('/pro'),
                         ),
                         const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.auto_awesome_rounded,
-                          title: 'AI 朗读设置',
-                          subtitle: '调整音色、语速和试听参数',
-                          onTap: () => context.push('/settings'),
-                        ),
-                        const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.text_fields_rounded,
-                          title: '阅读设置',
-                          subtitle: '调整亮度、字体、主题和翻页方式',
-                          onTap: () => context.push('/reader-settings'),
-                        ),
-                        const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.menu_book_rounded,
-                          title: '管理书架',
-                          subtitle: '查看在读、完成和最近导入的全部书籍',
-                          onTap: () => context.go('/bookshelf'),
-                        ),
-                        const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.explore_rounded,
-                          title: '发现推荐',
-                          subtitle: '按分类和偏好继续找下一本想读的书',
-                          onTap: () => context.go('/discover'),
-                        ),
-                        const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.history_rounded,
-                          title: '阅读历史',
-                          subtitle: '回看最近打开的书和阅读轨迹',
-                          onTap: () => context.push('/history'),
-                        ),
-                        const Divider(height: 1),
-                        _ProfileTile(
+                        _ActionTile(
                           icon: Icons.download_rounded,
                           title: '下载管理',
-                          subtitle: '查看离线缓存与占用空间',
+                          subtitle: '管理真实的章节 / 页面音频缓存',
                           onTap: () => context.push('/downloads'),
                         ),
                         const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.cloud_sync_outlined,
-                          title: '云端同步',
-                          subtitle: '查看跨设备支持与同步准备状态',
-                          onTap: () => context.push('/sync'),
+                        _ActionTile(
+                          icon: Icons.history_rounded,
+                          title: '阅读历史',
+                          subtitle: '回看最近打开的书和阅读进度',
+                          onTap: () => context.push('/history'),
                         ),
                         const Divider(height: 1),
-                        _ProfileTile(
-                          icon: Icons.play_circle_outline_rounded,
-                          title: '继续播放',
-                          subtitle: '回到播放器继续当前会话',
-                          onTap: () => context.go('/player'),
-                        ),
-                        const Divider(height: 1),
-                        _ProfileTile(
+                        _ActionTile(
                           icon: Icons.settings_outlined,
-                          title: '帮助与反馈',
-                          subtitle: '先放到设置页统一承接',
+                          title: '朗读与偏好设置',
+                          subtitle: '调整本地 TTS、云端音色和阅读体验',
                           onTap: () => context.push('/settings'),
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  LiquidGlassCard(
+                    child: Text(
+                      '首发版本专注本地 EPUB / PDF 阅读、听书、笔记和离线缓存，不包含账号、云同步、书城或社交能力。',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(height: 1.6),
                     ),
                   ),
                 ],
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Center(child: Text('加载我的页面失败: $error')),
+            error: (error, stack) => Center(child: Text('加载个人页失败: $error')),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HistoryPreviewTile extends StatelessWidget {
-  const _HistoryPreviewTile({required this.book});
-
-  final Book book;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => context.push('/book/${book.id}'),
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.28),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          children: [
-            BookCoverArt(
-              book: book,
-              width: 46,
-              height: 64,
-              radius: 12,
-              showMeta: false,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    book.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    book.lastReadAt == null
-                        ? '导入于 ${recencyLabel(book.importedAt)}'
-                        : '最近打开 ${recencyLabel(book.lastReadAt)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF647196),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              progressLabel(book),
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: const Color(0xFF5D7CFF),
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ],
         ),
       ),
     );
@@ -595,35 +240,28 @@ class _HistoryPreviewTile extends StatelessWidget {
 
 class _MetricCard extends StatelessWidget {
   const _MetricCard({
-    required this.icon,
     required this.label,
     required this.value,
     required this.unit,
   });
 
-  final IconData icon;
   final String label;
   final String value;
   final String unit;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return LiquidGlassCard(
+      radius: 22,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.44),
-        borderRadius: BorderRadius.circular(20),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: const Color(0xFF5D7CFF)),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
-          Text(label, style: Theme.of(context).textTheme.bodyMedium),
-          const SizedBox(height: 10),
           RichText(
             text: TextSpan(
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
               children: [
@@ -641,33 +279,8 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-class _VipBadge extends StatelessWidget {
-  const _VipBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.72),
-        ),
-      ),
-      child: Text(
-        'VIP 体验',
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: const Color(0xFF5D7CFF),
-              fontWeight: FontWeight.w800,
-            ),
-      ),
-    );
-  }
-}
-
-class _ProfileTile extends StatelessWidget {
-  const _ProfileTile({
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -681,54 +294,13 @@ class _ProfileTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.28),
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Icon(icon, color: const Color(0xFF5D7CFF)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF647196),
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: Color(0xFF7080A8)),
-            ],
-          ),
-        ),
-      ),
+    return ListTile(
+      onTap: onTap,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: const Color(0xFF5D7CFF)),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:chibook/data/models/book.dart';
@@ -43,10 +44,13 @@ String recencyLabel(DateTime? dateTime) {
 }
 
 String estimatedListenLabel(Book book) {
-  final units =
-      book.totalLocations > 0 ? book.totalLocations : book.title.length * 18;
-  final minutes = (units / 28).round().clamp(12, 180);
-  return '$minutes 分钟可听完当前段落';
+  final estimatedMinutes = switch (book.format) {
+    BookFormat.epub when book.totalLocations > 0 =>
+      (book.totalLocations / 950).round(),
+    BookFormat.pdf when book.pageCount > 0 => book.pageCount * 2,
+    _ => 12,
+  }.clamp(8, 480);
+  return '约 $estimatedMinutes 分钟';
 }
 
 String pseudoCategoryForBook(Book book) {
@@ -349,17 +353,28 @@ class BookCoverArt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = bookPalette(book);
+    final coverPath = book.coverImagePath;
+    final hasFileCover =
+        coverPath != null && coverPath.isNotEmpty && File(coverPath).existsSync();
 
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
-        gradient: LinearGradient(
-          colors: palette,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        gradient: hasFileCover
+            ? null
+            : LinearGradient(
+                colors: palette,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        image: hasFileCover
+            ? DecorationImage(
+                image: FileImage(File(coverPath)),
+                fit: BoxFit.cover,
+              )
+            : null,
         boxShadow: const [
           BoxShadow(
             color: Color(0x240F295A),
@@ -384,18 +399,19 @@ class BookCoverArt extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-            right: -18,
-            top: -18,
-            child: Container(
-              width: 90,
-              height: 90,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.16),
+          if (!hasFileCover)
+            Positioned(
+              right: -18,
+              top: -18,
+              child: Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.16),
+                ),
               ),
             ),
-          ),
           if (showMeta)
             Padding(
               padding: const EdgeInsets.all(16),
@@ -408,15 +424,17 @@ class BookCoverArt extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: hasFileCover
+                          ? Colors.black.withValues(alpha: 0.42)
+                          : Colors.white.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
                       book.formatLabel,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
                     ),
                   ),
                   const Spacer(),
@@ -427,6 +445,14 @@ class BookCoverArt extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
+                          shadows: hasFileCover
+                              ? const [
+                                  Shadow(
+                                    color: Color(0xCC000000),
+                                    blurRadius: 16,
+                                  ),
+                                ]
+                              : null,
                         ),
                   ),
                   const SizedBox(height: 8),
@@ -435,7 +461,17 @@ class BookCoverArt extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.86),
+                          color: hasFileCover
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.86),
+                          shadows: hasFileCover
+                              ? const [
+                                  Shadow(
+                                    color: Color(0xCC000000),
+                                    blurRadius: 12,
+                                  ),
+                                ]
+                              : null,
                         ),
                   ),
                 ],

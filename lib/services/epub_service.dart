@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:chibook/data/models/epub_models.dart';
 import 'package:epub_plus/epub_plus.dart';
+import 'package:image/image.dart' as img;
 
 class EpubService {
   const EpubService();
@@ -36,6 +38,31 @@ class EpubService {
     return (
       (book.title ?? '').trim(),
       (book.author ?? '').trim(),
+    );
+  }
+
+  Future<EpubImportMetadata> loadImportMetadata(String filePath) async {
+    final bytes = await File(filePath).readAsBytes();
+    final book = await EpubReader.readBook(bytes);
+    final chapters = <EpubChapterData>[];
+    _flattenChapters(book.chapters, chapters);
+    final plainTextLength = chapters.fold<int>(
+      0,
+      (sum, chapter) => sum + chapter.plainText.runes.length,
+    );
+    final languageCode = book.schema?.package?.metadata?.languages.isNotEmpty ==
+            true
+        ? book.schema!.package!.metadata!.languages.first.trim()
+        : null;
+
+    return EpubImportMetadata(
+      title: (book.title ?? '').trim(),
+      author: (book.author ?? '').trim(),
+      chapterCount: chapters.length,
+      totalLocations: plainTextLength,
+      languageCode:
+          languageCode == null || languageCode.isEmpty ? null : languageCode,
+      coverBytes: _encodeCoverImage(book.coverImage),
     );
   }
 
@@ -85,4 +112,27 @@ class EpubService {
         .replaceAll(RegExp(r'\n{3,}'), '\n\n')
         .trim();
   }
+
+  Uint8List? _encodeCoverImage(img.Image? image) {
+    if (image == null) return null;
+    return Uint8List.fromList(img.encodePng(image));
+  }
+}
+
+class EpubImportMetadata {
+  const EpubImportMetadata({
+    required this.title,
+    required this.author,
+    required this.chapterCount,
+    required this.totalLocations,
+    this.languageCode,
+    this.coverBytes,
+  });
+
+  final String title;
+  final String author;
+  final int chapterCount;
+  final int totalLocations;
+  final String? languageCode;
+  final Uint8List? coverBytes;
 }

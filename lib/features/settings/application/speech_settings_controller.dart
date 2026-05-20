@@ -5,7 +5,7 @@ import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final speechSettingsServiceProvider = Provider<SpeechSettingsService>((ref) {
-  return const SpeechSettingsService();
+  return SpeechSettingsService();
 });
 
 final speechSettingsControllerProvider =

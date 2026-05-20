@@ -9,10 +9,16 @@ class Book {
     required this.originalFileName,
     required this.format,
     required this.importedAt,
-    this.coverPath,
+    required this.fileHash,
+    required this.fileSizeBytes,
+    this.coverImagePath,
     this.lastReadAt,
+    this.lastReadLocation,
     this.progress = 0,
     this.totalLocations = 0,
+    this.pageCount = 0,
+    this.chapterCount = 0,
+    this.languageCode,
   });
 
   final String id;
@@ -22,12 +28,19 @@ class Book {
   final String originalFileName;
   final BookFormat format;
   final DateTime importedAt;
-  final String? coverPath;
+  final String fileHash;
+  final int fileSizeBytes;
+  final String? coverImagePath;
   final DateTime? lastReadAt;
+  final String? lastReadLocation;
   final double progress;
   final int totalLocations;
+  final int pageCount;
+  final int chapterCount;
+  final String? languageCode;
 
   String get formatLabel => format == BookFormat.epub ? 'EPUB' : 'PDF';
+  bool get hasCoverImage => coverImagePath?.trim().isNotEmpty == true;
 
   Book copyWith({
     String? id,
@@ -37,10 +50,16 @@ class Book {
     String? originalFileName,
     BookFormat? format,
     DateTime? importedAt,
-    String? coverPath,
+    String? fileHash,
+    int? fileSizeBytes,
+    String? coverImagePath,
     DateTime? lastReadAt,
+    String? lastReadLocation,
     double? progress,
     int? totalLocations,
+    int? pageCount,
+    int? chapterCount,
+    String? languageCode,
   }) {
     return Book(
       id: id ?? this.id,
@@ -50,10 +69,16 @@ class Book {
       originalFileName: originalFileName ?? this.originalFileName,
       format: format ?? this.format,
       importedAt: importedAt ?? this.importedAt,
-      coverPath: coverPath ?? this.coverPath,
+      fileHash: fileHash ?? this.fileHash,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      coverImagePath: coverImagePath ?? this.coverImagePath,
       lastReadAt: lastReadAt ?? this.lastReadAt,
+      lastReadLocation: lastReadLocation ?? this.lastReadLocation,
       progress: progress ?? this.progress,
       totalLocations: totalLocations ?? this.totalLocations,
+      pageCount: pageCount ?? this.pageCount,
+      chapterCount: chapterCount ?? this.chapterCount,
+      languageCode: languageCode ?? this.languageCode,
     );
   }
 }

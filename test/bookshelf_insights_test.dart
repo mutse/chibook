@@ -85,6 +85,8 @@ Book _book({
     originalFileName: '$title.epub',
     format: format,
     importedAt: importedAt ?? DateTime(2026, 5, 1),
+    fileHash: 'hash-$id',
+    fileSizeBytes: 1024,
     lastReadAt: lastReadAt,
     progress: progress,
   );

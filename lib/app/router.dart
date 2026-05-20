@@ -1,8 +1,8 @@
 import 'package:chibook/features/bookshelf/presentation/book_detail_screen.dart';
-import 'package:chibook/features/bookshelf/presentation/book_ai_hub_screen.dart';
 import 'package:chibook/features/bookshelf/presentation/book_notebook_screen.dart';
 import 'package:chibook/features/bookshelf/presentation/book_playlist_screen.dart';
 import 'package:chibook/features/home/presentation/reading_home_screen.dart';
+import 'package:chibook/features/home/presentation/launch_gate_screen.dart';
 import 'package:chibook/features/home/presentation/welcome_screen.dart';
 import 'package:chibook/features/navigation/presentation/app_shell.dart';
 import 'package:chibook/features/bookshelf/presentation/bookshelf_screen.dart';
@@ -11,19 +11,21 @@ import 'package:chibook/features/downloads/presentation/downloads_screen.dart';
 import 'package:chibook/features/player/presentation/player_screen.dart';
 import 'package:chibook/features/profile/presentation/profile_screen.dart';
 import 'package:chibook/features/profile/presentation/reading_history_screen.dart';
-import 'package:chibook/features/profile/presentation/sync_center_screen.dart';
 import 'package:chibook/features/reader/presentation/reader_screen.dart';
 import 'package:chibook/features/reader/presentation/reader_preferences_screen.dart';
 import 'package:chibook/features/settings/presentation/settings_screen.dart';
+import 'package:chibook/features/pro/presentation/pro_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
+    observers: [SentryNavigatorObserver()],
     routes: [
       GoRoute(
         path: '/',
-        redirect: (_, __) => '/welcome',
+        builder: (context, state) => const LaunchGateScreen(),
       ),
       GoRoute(
         path: '/welcome',
@@ -104,21 +106,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        path: '/book/:bookId/ai',
-        builder: (context, state) {
-          final bookId = state.pathParameters['bookId']!;
-          final tab = state.uri.queryParameters['tab'];
-          return BookAiHubScreen(
-            bookId: bookId,
-            initialTabIndex: switch (tab) {
-              'mindmap' => 1,
-              'ask' => 2,
-              _ => 0,
-            },
-          );
-        },
-      ),
-      GoRoute(
         path: '/book/:bookId/notebook',
         builder: (context, state) {
           final bookId = state.pathParameters['bookId']!;
@@ -141,12 +128,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ReadingHistoryScreen(),
       ),
       GoRoute(
-        path: '/sync',
-        builder: (context, state) => const SyncCenterScreen(),
-      ),
-      GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(showAppBar: true),
+      ),
+      GoRoute(
+        path: '/pro',
+        builder: (context, state) => const ProScreen(),
       ),
     ],
   );

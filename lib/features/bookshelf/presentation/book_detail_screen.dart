@@ -65,13 +65,13 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                         icon: const Icon(Icons.toc_rounded),
                       ),
                       IconButton(
-                        onPressed: () => context.push('/book/${book.id}/ai'),
-                        icon: const Icon(Icons.auto_awesome_rounded),
-                      ),
-                      IconButton(
                         onPressed: () =>
                             context.push('/book/${book.id}/notebook'),
                         icon: const Icon(Icons.sticky_note_2_outlined),
+                      ),
+                      IconButton(
+                        onPressed: () => context.push('/pro'),
+                        icon: const Icon(Icons.workspace_premium_rounded),
                       ),
                       IconButton(
                         onPressed: () =>
@@ -204,7 +204,12 @@ class _BookHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final infoItems = [
-      ('在听人数', '${book.title.length * 1100}'),
+      (
+        '文件大小',
+        book.fileSizeBytes >= 1024 * 1024
+            ? '${(book.fileSizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+            : '${(book.fileSizeBytes / 1024).toStringAsFixed(1)} KB',
+      ),
       ('当前进度', progressLabel(book)),
       ('阅读格式', book.formatLabel),
     ];
@@ -262,7 +267,7 @@ class _BookHero extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '${book.author} · ${pseudoCategoryForBook(book)}',
+            '${book.author} · ${book.formatLabel}',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
@@ -272,7 +277,8 @@ class _BookHero extends StatelessWidget {
             alignment: WrapAlignment.center,
             children: [
               TagChip(label: book.formatLabel),
-              TagChip(label: pseudoCategoryForBook(book)),
+              if (book.languageCode?.isNotEmpty == true)
+                TagChip(label: book.languageCode!.toUpperCase()),
               TagChip(label: book.progress > 0 ? '继续收听' : '适合开听'),
             ],
           ),
@@ -330,16 +336,16 @@ class _BookActionGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       (
-        'AI 总结',
-        '先看重点',
-        Icons.auto_awesome_rounded,
-        () => context.push('/book/${book.id}/ai'),
+        '阅读笔记',
+        '沉淀想法',
+        Icons.sticky_note_2_outlined,
+        () => context.push('/book/${book.id}/notebook'),
       ),
       (
-        '思维导图',
-        '压缩结构',
-        Icons.account_tree_outlined,
-        () => context.push('/book/${book.id}/ai?tab=mindmap'),
+        '播放列表',
+        '分段收听',
+        Icons.queue_music_rounded,
+        () => context.push('/book/${book.id}/playlist'),
       ),
       (
         'AI 问书',
@@ -555,7 +561,8 @@ class _BookOverview extends StatelessWidget {
                 runSpacing: 10,
                 children: [
                   TagChip(label: book.formatLabel),
-                  TagChip(label: pseudoCategoryForBook(book)),
+                  if (book.languageCode?.isNotEmpty == true)
+                    TagChip(label: book.languageCode!.toUpperCase()),
                   const TagChip(label: 'AI 朗读'),
                   const TagChip(label: '沉浸式听书'),
                 ],

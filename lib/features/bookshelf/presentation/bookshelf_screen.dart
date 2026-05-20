@@ -566,13 +566,12 @@ class _ShelfActionDeck extends StatelessWidget {
           const SizedBox(width: 12),
           _ShelfActionCard(
             width: 214,
-            title: 'AI 总结入口',
-            subtitle: active == 0 ? '选一本到两本先建立节奏' : '$active 本正在形成听书链路',
-            icon: Icons.auto_awesome_rounded,
+            title: 'Chibook Pro',
+            subtitle: active == 0 ? '解锁云端朗读和离线缓存' : '升级后可缓存当前在读内容',
+            icon: Icons.workspace_premium_rounded,
             colors: const [Color(0xFFFFF6E5), Color(0xFFFFE6BA)],
             onTap: () {
-              if (latest == null) return;
-              context.push('/book/${latest.id}/ai');
+              context.push('/pro');
             },
           ),
         ],
@@ -866,7 +865,7 @@ class _ShelfRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${book.author} · ${pseudoCategoryForBook(book)}',
+                  '${book.author} · ${book.formatLabel}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
@@ -889,9 +888,9 @@ class _ShelfRow extends StatelessWidget {
                   children: [
                     Expanded(
                       child: FilledButton.tonalIcon(
-                        onPressed: () => context.push('/book/${book.id}/ai'),
-                        icon: const Icon(Icons.auto_awesome_rounded),
-                        label: const Text('AI'),
+                        onPressed: () => context.push('/book/${book.id}/playlist'),
+                        icon: const Icon(Icons.queue_music_rounded),
+                        label: const Text('播放列表'),
                       ),
                     ),
                     const SizedBox(width: 10),

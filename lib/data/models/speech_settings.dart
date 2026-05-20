@@ -1,6 +1,6 @@
 enum SpeechProviderMode { auto, cloud, local }
 
-enum CloudTtsProvider { openai, microsoftEdge, elevenlabs }
+enum CloudTtsProvider { openai, azureSpeech, microsoftEdge, elevenlabs }
 
 class SpeechSettings {
   static final RegExp _edgeVoicePattern = RegExp(
@@ -38,10 +38,9 @@ class SpeechSettings {
 
   factory SpeechSettings.defaults() {
     return const SpeechSettings(
-      providerMode: SpeechProviderMode.auto,
-      cloudProvider: CloudTtsProvider.microsoftEdge,
-      endpoint:
-          'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
+      providerMode: SpeechProviderMode.local,
+      cloudProvider: CloudTtsProvider.azureSpeech,
+      endpoint: 'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
       apiKey: '',
       model: 'audio-24khz-48kbitrate-mono-mp3',
       voice: 'zh-CN-XiaoxiaoNeural',
@@ -65,7 +64,9 @@ class SpeechSettings {
   bool get isCloudReady {
     return switch (cloudProvider) {
       CloudTtsProvider.openai => endpoint.isNotEmpty && apiKey.isNotEmpty,
-      CloudTtsProvider.microsoftEdge => endpoint.isNotEmpty,
+      CloudTtsProvider.azureSpeech => endpoint.isNotEmpty && apiKey.isNotEmpty,
+      CloudTtsProvider.microsoftEdge =>
+        endpoint.isNotEmpty && apiKey.isNotEmpty,
       CloudTtsProvider.elevenlabs => endpoint.isNotEmpty && apiKey.isNotEmpty,
     };
   }
@@ -97,8 +98,10 @@ class SpeechSettings {
   static String defaultEndpointFor(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'https://api.openai.com/v1/audio/speech',
+      CloudTtsProvider.azureSpeech =>
+        'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
       CloudTtsProvider.microsoftEdge =>
-        'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
+        'https://eastus.tts.speech.microsoft.com/cognitiveservices/v1',
       CloudTtsProvider.elevenlabs =>
         'https://api.elevenlabs.io/v1/text-to-speech',
     };
@@ -114,8 +117,8 @@ class SpeechSettings {
     }
 
     return switch (provider) {
-      CloudTtsProvider.microsoftEdge =>
-        _normalizeMicrosoftEdgeEndpoint(trimmed),
+      CloudTtsProvider.azureSpeech => _normalizeAzureSpeechEndpoint(trimmed),
+      CloudTtsProvider.microsoftEdge => _normalizeAzureSpeechEndpoint(trimmed),
       CloudTtsProvider.elevenlabs => _normalizeElevenLabsEndpoint(trimmed),
       _ => trimmed,
     };
@@ -131,6 +134,9 @@ class SpeechSettings {
     }
 
     return switch (provider) {
+      CloudTtsProvider.azureSpeech
+          when !_edgeOutputFormatPattern.hasMatch(trimmed) =>
+        defaultModelFor(provider),
       CloudTtsProvider.microsoftEdge
           when !_edgeOutputFormatPattern.hasMatch(trimmed) =>
         defaultModelFor(provider),
@@ -148,7 +154,8 @@ class SpeechSettings {
     }
 
     return switch (provider) {
-      CloudTtsProvider.microsoftEdge => _normalizeMicrosoftEdgeVoice(trimmed),
+      CloudTtsProvider.azureSpeech => _normalizeAzureSpeechVoice(trimmed),
+      CloudTtsProvider.microsoftEdge => _normalizeAzureSpeechVoice(trimmed),
       _ => trimmed,
     };
   }
@@ -156,6 +163,7 @@ class SpeechSettings {
   static String defaultModelFor(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'gpt-4o-mini-tts',
+      CloudTtsProvider.azureSpeech => 'audio-24khz-48kbitrate-mono-mp3',
       CloudTtsProvider.microsoftEdge => 'audio-24khz-48kbitrate-mono-mp3',
       CloudTtsProvider.elevenlabs => 'eleven_multilingual_v2',
     };
@@ -164,37 +172,35 @@ class SpeechSettings {
   static String defaultVoiceFor(CloudTtsProvider provider) {
     return switch (provider) {
       CloudTtsProvider.openai => 'alloy',
+      CloudTtsProvider.azureSpeech => 'zh-CN-XiaoxiaoNeural',
       CloudTtsProvider.microsoftEdge => 'zh-CN-XiaoxiaoNeural',
       CloudTtsProvider.elevenlabs => '',
     };
   }
 
-  static String _normalizeMicrosoftEdgeEndpoint(String endpoint) {
-    final candidate = endpoint.startsWith('speech.platform.bing.com')
-        ? 'wss://$endpoint'
+  static String _normalizeAzureSpeechEndpoint(String endpoint) {
+    final candidate = endpoint.startsWith('eastus.tts.speech.microsoft.com')
+        ? 'https://$endpoint'
         : endpoint;
     final uri = Uri.tryParse(candidate);
     if (uri == null) {
-      return defaultEndpointFor(CloudTtsProvider.microsoftEdge);
+      return defaultEndpointFor(CloudTtsProvider.azureSpeech);
     }
 
     final host = uri.host.toLowerCase();
-    final path = uri.path.toLowerCase();
-    final isKnownMicrosoftSpeechHost = host == 'speech.platform.bing.com' ||
+    final isAzureSpeechHost =
         host.endsWith('.tts.speech.microsoft.com') ||
-        host.endsWith('.speech.microsoft.com');
-
-    if (isKnownMicrosoftSpeechHost &&
-        (host != 'speech.platform.bing.com' ||
-            path.contains('/cognitiveservices/') ||
-            path.contains('/consumer/speech/synthesize/readaloud'))) {
-      return defaultEndpointFor(CloudTtsProvider.microsoftEdge);
+            host.endsWith('.speech.microsoft.com');
+    if (!isAzureSpeechHost) {
+      return defaultEndpointFor(CloudTtsProvider.azureSpeech);
     }
 
-    return candidate;
+    return candidate.endsWith('/cognitiveservices/v1')
+        ? candidate
+        : '${candidate.replaceAll(RegExp(r'/$'), '')}/cognitiveservices/v1';
   }
 
-  static String _normalizeMicrosoftEdgeVoice(String voice) {
+  static String _normalizeAzureSpeechVoice(String voice) {
     var normalized = voice.trim();
     if (normalized.startsWith('"') &&
         normalized.endsWith('"') &&
@@ -223,7 +229,7 @@ class SpeechSettings {
       return normalized;
     }
 
-    return defaultVoiceFor(CloudTtsProvider.microsoftEdge);
+    return defaultVoiceFor(CloudTtsProvider.azureSpeech);
   }
 
   static String _normalizeElevenLabsEndpoint(String endpoint) {
