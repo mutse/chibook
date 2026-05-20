@@ -35,7 +35,7 @@ dependencies:
   audio_service: any
   webview_flutter: any
   purchases_flutter: any
-  sentry_flutter: any
+  sentry_flutter: ^9.20.0
   image: any
   intl: any
 
