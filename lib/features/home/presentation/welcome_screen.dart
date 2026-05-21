@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:chibook/app/liquid_ui.dart';
-import 'package:chibook/features/home/presentation/launch_gate_screen.dart';
 import 'package:chibook/l10n/generated/app_localizations.dart';
+import 'package:chibook/services/onboarding_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,9 +10,36 @@ import 'package:go_router/go_router.dart';
 class WelcomeScreen extends ConsumerWidget {
   const WelcomeScreen({super.key});
 
+  void _enterApp(
+    BuildContext context,
+    OnboardingService onboardingService,
+    String route,
+  ) {
+    context.go(route);
+    unawaited(_persistOnboarding(onboardingService));
+  }
+
+  Future<void> _persistOnboarding(OnboardingService onboardingService) async {
+    try {
+      await onboardingService.complete();
+    } catch (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'welcome_screen',
+          context: ErrorDescription(
+            'while persisting onboarding completion',
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
+    final onboardingService = ref.read(onboardingServiceProvider);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -140,10 +169,8 @@ class WelcomeScreen extends ConsumerWidget {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: () async {
-                      await ref.read(onboardingServiceProvider).complete();
-                      if (!context.mounted) return;
-                      context.go('/home');
+                    onPressed: () {
+                      _enterApp(context, onboardingService, '/home');
                     },
                     icon: const Icon(Icons.arrow_forward_rounded),
                     label: Text(l10n.welcomePrimaryCta),
@@ -151,10 +178,8 @@ class WelcomeScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 TextButton(
-                  onPressed: () async {
-                    await ref.read(onboardingServiceProvider).complete();
-                    if (!context.mounted) return;
-                    context.go('/bookshelf');
+                  onPressed: () {
+                    _enterApp(context, onboardingService, '/bookshelf');
                   },
                   child: Text(l10n.welcomeSecondaryCta),
                 ),

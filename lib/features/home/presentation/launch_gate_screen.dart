@@ -1,11 +1,7 @@
-import 'package:chibook/services/onboarding_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
-final onboardingServiceProvider = Provider<OnboardingService>((ref) {
-  return const OnboardingService();
-});
+import 'package:chibook/services/onboarding_service.dart';
 
 class LaunchGateScreen extends ConsumerStatefulWidget {
   const LaunchGateScreen({super.key});
