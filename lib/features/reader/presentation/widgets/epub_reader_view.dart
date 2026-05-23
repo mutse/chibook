@@ -1,12 +1,14 @@
 import 'package:chibook/data/models/book.dart';
-import 'package:chibook/data/models/reader_preferences.dart';
 import 'package:chibook/data/models/epub_models.dart';
+import 'package:chibook/data/models/reader_preferences.dart';
+import 'package:chibook/features/bookshelf/presentation/widgets/book_annotation_sheet.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_preferences_controller.dart';
 import 'package:chibook/features/reader/application/reader_speech_segments.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 class EpubReaderView extends ConsumerStatefulWidget {
   const EpubReaderView({
@@ -27,8 +29,18 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
   int? _lastSyncedChapterIndex;
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _segmentKeys = {};
+  late final WebViewController _webViewController;
   int? _lastAutoSegmentIndex;
   int? _lastAutoChapterIndex;
+  String? _lastRenderedChapterKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.disabled)
+      ..setBackgroundColor(Colors.transparent);
+  }
 
   @override
   void dispose() {
@@ -63,11 +75,19 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                     autoSpeech?.chapterIndex == chapter.index
                 ? autoSpeech?.segmentIndex
                 : null;
+        final useNarrationView = activeSegmentIndex != null;
         _syncChapterState(chapter, chapters.length);
         _syncAutoScroll(
           chapterIndex: chapter.index,
           segmentIndex: activeSegmentIndex,
         );
+        if (!useNarrationView) {
+          _syncRichChapterView(
+            chapter: chapter,
+            preferences: preferences,
+            colors: colors,
+          );
+        }
 
         return Padding(
           padding: EdgeInsets.fromLTRB(8, 0, 8, widget.compact ? 8 : 12),
@@ -115,32 +135,55 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
                 ),
                 Divider(height: 1, color: colors.divider),
                 Expanded(
-                  child: ListView(
-                    controller: _scrollController,
-                    padding: EdgeInsets.fromLTRB(
-                      18,
-                      widget.compact ? 16 : 20,
-                      18,
-                      widget.compact ? 16 : 24,
-                    ),
-                    children: [
-                      Text(
-                        chapter.title,
-                        style:
-                            Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: colors.primaryText,
-                                ),
-                      ),
-                      const SizedBox(height: 18),
-                      ..._buildSpeechSegments(
-                        segments: segments,
-                        activeSegmentIndex: activeSegmentIndex,
-                        preferences: preferences,
-                        colors: colors,
-                      ),
-                    ],
-                  ),
+                  child: useNarrationView
+                      ? ListView(
+                          controller: _scrollController,
+                          physics: _scrollPhysics(preferences.pageTurnMode),
+                          padding: EdgeInsets.fromLTRB(
+                            18,
+                            widget.compact ? 16 : 20,
+                            18,
+                            widget.compact ? 16 : 24,
+                          ),
+                          children: [
+                            Text(
+                              chapter.title,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: colors.primaryText,
+                                    fontFamily: readerFontFamily(
+                                      preferences.fontPreset,
+                                    ),
+                                    letterSpacing: readerLetterSpacing(
+                                      preferences.fontPreset,
+                                    ),
+                                  ),
+                            ),
+                            const SizedBox(height: 18),
+                            ..._buildSpeechSegments(
+                              chapter: chapter,
+                              segments: segments,
+                              activeSegmentIndex: activeSegmentIndex,
+                              preferences: preferences,
+                              colors: colors,
+                            ),
+                          ],
+                        )
+                      : Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            12,
+                            widget.compact ? 12 : 16,
+                            12,
+                            widget.compact ? 12 : 16,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: WebViewWidget(controller: _webViewController),
+                          ),
+                        ),
                 ),
                 Padding(
                   padding: EdgeInsets.fromLTRB(
@@ -219,6 +262,7 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
   }
 
   List<Widget> _buildSpeechSegments({
+    required EpubChapterData chapter,
     required List<String> segments,
     required int? activeSegmentIndex,
     required ReaderPreferences preferences,
@@ -250,13 +294,41 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
             color: isActive ? colors.activeBorder : Colors.transparent,
           ),
         ),
-        child: SelectableText(
-          segment,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontSize: preferences.fontSize,
-                height: preferences.lineHeight,
-                color: colors.primaryText,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SelectableText(
+                segment,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontSize: preferences.fontSize,
+                      height: preferences.lineHeight,
+                      color: colors.primaryText,
+                      fontFamily: readerFontFamily(preferences.fontPreset),
+                      letterSpacing:
+                          readerLetterSpacing(preferences.fontPreset),
+                    ),
               ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: '加入划线',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => showBookAnnotationComposer(
+                context: context,
+                ref: ref,
+                bookId: widget.book.id,
+                quote: segment,
+                locationLabel: '第 ${chapter.index + 1} 章',
+                sectionTitle: chapter.title,
+              ),
+              icon: Icon(
+                Icons.bookmark_add_outlined,
+                size: 20,
+                color: isActive ? colors.activeBorder : colors.secondaryText,
+              ),
+            ),
+          ],
         ),
       );
     });
@@ -285,6 +357,127 @@ class _EpubReaderViewState extends ConsumerState<EpubReaderView> {
         alignment: 0.2,
       );
     });
+  }
+
+  void _syncRichChapterView({
+    required EpubChapterData chapter,
+    required ReaderPreferences preferences,
+    required _ReaderThemeColors colors,
+  }) {
+    final renderKey = [
+      chapter.index,
+      preferences.fontPreset.name,
+      preferences.fontSize,
+      preferences.lineHeight,
+      colors.background.toARGB32(),
+      colors.primaryText.toARGB32(),
+      chapter.htmlContent.hashCode,
+    ].join('|');
+    if (_lastRenderedChapterKey == renderKey) return;
+    _lastRenderedChapterKey = renderKey;
+    _webViewController.loadHtmlString(
+      _buildChapterHtml(
+        chapter: chapter,
+        preferences: preferences,
+        colors: colors,
+      ),
+    );
+  }
+
+  String _buildChapterHtml({
+    required EpubChapterData chapter,
+    required ReaderPreferences preferences,
+    required _ReaderThemeColors colors,
+  }) {
+    final fontFamily = readerFontFamily(preferences.fontPreset);
+    final letterSpacing = readerLetterSpacing(preferences.fontPreset);
+    final bodyColor = _hex(colors.primaryText);
+    final background = _hex(colors.background);
+    final divider = _hex(colors.divider);
+    final secondary = _hex(colors.secondaryText);
+
+    return '''
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: $background;
+        color: $bodyColor;
+        font-family: "$fontFamily", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: ${preferences.fontSize}px;
+        line-height: ${preferences.lineHeight};
+        letter-spacing: ${letterSpacing}px;
+      }
+      body {
+        padding: 28px 22px 40px;
+      }
+      h1 {
+        margin: 0 0 18px;
+        line-height: 1.25;
+      }
+      h2, h3, h4, h5, h6 {
+        line-height: 1.3;
+      }
+      p, li, blockquote {
+        margin: 0 0 1.1em;
+      }
+      img, svg {
+        max-width: 100%;
+        height: auto;
+      }
+      blockquote {
+        margin: 1.2em 0;
+        padding: 0.2em 1em;
+        border-left: 3px solid $divider;
+        color: $secondary;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid $divider;
+        margin: 1.4em 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1em 0;
+      }
+      td, th {
+        border: 1px solid $divider;
+        padding: 8px;
+      }
+      a {
+        color: $secondary;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>${chapter.title}</h1>
+    ${chapter.htmlContent}
+  </body>
+</html>
+''';
+  }
+
+  String _hex(Color color) {
+    final value = color.toARGB32() & 0x00ffffff;
+    return '#${value.toRadixString(16).padLeft(6, '0')}';
+  }
+
+  ScrollPhysics _scrollPhysics(ReaderPageTurnMode mode) {
+    return switch (mode) {
+      ReaderPageTurnMode.cover => const ClampingScrollPhysics(),
+      ReaderPageTurnMode.simulation => const BouncingScrollPhysics(),
+      ReaderPageTurnMode.slide => const PageScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+      ReaderPageTurnMode.none => const ClampingScrollPhysics(),
+    };
   }
 
   _ReaderThemeColors _themeColors(ReaderThemeMode mode) {

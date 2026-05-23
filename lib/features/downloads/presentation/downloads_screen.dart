@@ -1,4 +1,5 @@
 import 'package:chibook/app/liquid_ui.dart';
+import 'package:chibook/data/models/audio_cache_entry.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:flutter/material.dart';
@@ -11,15 +12,24 @@ class DownloadsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final booksAsync = ref.watch(bookshelfControllerProvider);
+    final cacheAsync = ref.watch(audioCacheEntriesProvider);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: LiquidBackground(
         child: SafeArea(
           child: booksAsync.when(
-            data: (books) => _DownloadsBody(books: books),
+            data: (books) => cacheAsync.when(
+              data: (entries) => _DownloadsBody(
+                books: books,
+                entries: entries,
+              ),
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, stack) =>
+                  Center(child: Text('加载缓存失败: $error')),
+            ),
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Center(child: Text('加载下载管理失败: $error')),
+            error: (error, stack) => Center(child: Text('加载书籍失败: $error')),
           ),
         ),
       ),
@@ -27,19 +37,22 @@ class DownloadsScreen extends ConsumerWidget {
   }
 }
 
-class _DownloadsBody extends StatelessWidget {
-  const _DownloadsBody({required this.books});
+class _DownloadsBody extends ConsumerWidget {
+  const _DownloadsBody({
+    required this.books,
+    required this.entries,
+  });
 
   final List<Book> books;
+  final List<AudioCacheEntry> entries;
 
   @override
-  Widget build(BuildContext context) {
-    final sortedBooks = sortBooksByRecent(books);
-    final totalMb = sortedBooks.fold<double>(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bookMap = {for (final book in books) book.id: book};
+    final totalBytes = entries.fold<int>(
       0,
-      (sum, book) => sum + _sizeForBook(book),
+      (sum, entry) => sum + entry.fileSizeBytes,
     );
-    final activeCount = sortedBooks.where((book) => book.progress < 1).length;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
@@ -51,35 +64,180 @@ class _DownloadsBody extends StatelessWidget {
               icon: const Icon(Icons.arrow_back_ios_new_rounded),
             ),
             const SizedBox(width: 8),
-            Text(
-              '下载管理',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+            Expanded(
+              child: Text(
+                '下载管理',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
             ),
+            if (entries.isNotEmpty)
+              TextButton(
+                onPressed: () => _clearAll(context, ref, entries),
+                child: const Text('清空缓存'),
+              ),
           ],
         ),
         const SizedBox(height: 18),
-        _StorageHero(
-          bookCount: sortedBooks.length,
-          totalMb: totalMb,
-          activeCount: activeCount,
+        LiquidGlassCard(
+          radius: 32,
+          colors: const [
+            Color(0xFFEAF2FF),
+            Color(0xD9FFFFFF),
+            Color(0xFFDDEAFF),
+          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '离线音频缓存',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                entries.isEmpty
+                    ? '当前还没有生成可离线播放的章节或页面音频。升级到 Pro 并启用云端朗读后，缓存会显示在这里。'
+                    : '这里展示已经落盘的章节/页面音频缓存，删除后会在下次播放时重新生成。',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      height: 1.6,
+                    ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _StorageStat(
+                      label: '缓存文件',
+                      value: '${entries.length}',
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _StorageStat(
+                      label: '占用空间',
+                      value: _formatBytes(totalBytes),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 18),
-        if (sortedBooks.isEmpty)
-          const _DownloadEmptyState()
+        if (entries.isEmpty)
+          LiquidGlassCard(
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.cloud_off_rounded,
+                  size: 46,
+                  color: Color(0xFF5D7CFF),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  '还没有离线缓存',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '免费版可以直接本地朗读，Pro 用户启用云端朗读并缓存后，这里会出现真实的离线文件。',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        height: 1.6,
+                      ),
+                ),
+              ],
+            ),
+          )
         else ...[
           SectionHeader(
-            title: '缓存队列',
-            actionLabel: '${sortedBooks.length} 项',
+            title: '缓存列表',
+            actionLabel: '${entries.length} 项',
           ),
           const SizedBox(height: 8),
-          ...sortedBooks.map((book) {
+          ...entries.map((entry) {
+            final book = bookMap[entry.bookId];
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _DownloadRow(
-                book: book,
-                sizeMb: _sizeForBook(book),
+              child: LiquidGlassCard(
+                child: Row(
+                  children: [
+                    if (book != null)
+                      BookCoverArt(
+                        book: book,
+                        width: 62,
+                        height: 86,
+                        radius: 18,
+                        showMeta: false,
+                      )
+                    else
+                      Container(
+                        width: 62,
+                        height: 86,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          color: const Color(0xFFE1E8FF),
+                        ),
+                        child: const Icon(Icons.audio_file_rounded),
+                      ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            book?.title ?? '未知书籍',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            entry.segmentLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${entry.providerName} · ${entry.formattedSizeLabel}',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF667394),
+                                    ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            recencyLabel(entry.createdAt),
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF667394),
+                                    ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '删除缓存',
+                      onPressed: () => _deleteEntry(context, ref, entry),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                    ),
+                    if (book != null)
+                      IconButton(
+                        tooltip: '打开书籍',
+                        onPressed: () => context.push('/book/${book.id}'),
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                  ],
+                ),
               ),
             );
           }),
@@ -88,129 +246,31 @@ class _DownloadsBody extends StatelessWidget {
     );
   }
 
-  double _sizeForBook(Book book) {
-    return (book.totalLocations > 0
-            ? book.totalLocations / 36
-            : book.title.length * 1.6)
-        .clamp(12, 240)
-        .toDouble();
+  Future<void> _deleteEntry(
+    BuildContext context,
+    WidgetRef ref,
+    AudioCacheEntry entry,
+  ) async {
+    await ref.read(speechCacheServiceProvider).deleteEntry(entry);
+    ref.invalidate(audioCacheEntriesProvider);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已删除缓存文件')),
+    );
   }
-}
 
-class _StorageHero extends StatelessWidget {
-  const _StorageHero({
-    required this.bookCount,
-    required this.totalMb,
-    required this.activeCount,
-  });
-
-  final int bookCount;
-  final double totalMb;
-  final int activeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidGlassCard(
-      radius: 32,
-      colors: const [
-        Color(0xFFEAF2FF),
-        Color(0xD9FFFFFF),
-        Color(0xFFDDEAFF),
-      ],
-      child: Stack(
-        children: [
-          Positioned(
-            right: -42,
-            top: -40,
-            child: Container(
-              width: 160,
-              height: 160,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF6C92FF).withValues(alpha: 0.16),
-              ),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF5C7CFF), Color(0xFF7FD8FF)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.cloud_done_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '离线听书缓存',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          bookCount == 0
-                              ? '还没有离线缓存'
-                              : '$activeCount 项正在保持可随时播放',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: const Color(0xFF647196)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  const Expanded(
-                    child: _StorageStat(
-                      label: '可用空间',
-                      value: '23.4',
-                      unit: 'GB',
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _StorageStat(
-                      label: '已缓存',
-                      value: totalMb.toStringAsFixed(1),
-                      unit: 'MB',
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _StorageStat(
-                      label: '书籍',
-                      value: '$bookCount',
-                      unit: '本',
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
+  Future<void> _clearAll(
+    BuildContext context,
+    WidgetRef ref,
+    List<AudioCacheEntry> entries,
+  ) async {
+    for (final entry in entries) {
+      await ref.read(speechCacheServiceProvider).deleteEntry(entry);
+    }
+    ref.invalidate(audioCacheEntriesProvider);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已清空缓存')),
     );
   }
 }
@@ -219,12 +279,10 @@ class _StorageStat extends StatelessWidget {
   const _StorageStat({
     required this.label,
     required this.value,
-    required this.unit,
   });
 
   final String label;
   final String value;
-  final String unit;
 
   @override
   Widget build(BuildContext context) {
@@ -239,19 +297,11 @@ class _StorageStat extends StatelessWidget {
         children: [
           Text(label, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
-          RichText(
-            text: TextSpan(
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-              children: [
-                TextSpan(text: value),
-                TextSpan(
-                  text: unit,
-                  style: Theme.of(context).textTheme.bodySmall,
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
                 ),
-              ],
-            ),
           ),
         ],
       ),
@@ -259,128 +309,12 @@ class _StorageStat extends StatelessWidget {
   }
 }
 
-class _DownloadRow extends StatelessWidget {
-  const _DownloadRow({
-    required this.book,
-    required this.sizeMb,
-  });
-
-  final Book book;
-  final double sizeMb;
-
-  @override
-  Widget build(BuildContext context) {
-    final progress =
-        book.progress <= 0 ? 0.26 : book.progress.clamp(0.18, 1.0).toDouble();
-    final palette = bookPalette(book);
-
-    return LiquidGlassCard(
-      radius: 28,
-      child: Row(
-        children: [
-          BookCoverArt(
-            book: book,
-            width: 66,
-            height: 92,
-            radius: 18,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    TagChip(
-                      label: book.progress >= 1 ? '已下载' : '下载中',
-                      active: book.progress < 1,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${sizeMb.toStringAsFixed(1)} MB',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF647196),
-                          ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  book.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '语音缓存 ${progressLabel(book)}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 6,
-                    color: palette.first,
-                    backgroundColor: const Color(0xFFDCE5FF),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filledTonal(
-            onPressed: () {},
-            icon: Icon(
-              book.progress >= 1 ? Icons.check_rounded : Icons.pause_rounded,
-            ),
-          ),
-        ],
-      ),
-    );
+String _formatBytes(int bytes) {
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
-}
-
-class _DownloadEmptyState extends StatelessWidget {
-  const _DownloadEmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidGlassCard(
-      radius: 30,
-      child: Column(
-        children: [
-          Container(
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF5D7CFF).withValues(alpha: 0.12),
-            ),
-            child: const Icon(
-              Icons.download_for_offline_outlined,
-              color: Color(0xFF5D7CFF),
-              size: 34,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '还没有可管理的下载',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '导入书籍后，这里会显示离线缓存、语音片段和预计占用空间。',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
-          ),
-        ],
-      ),
-    );
+  if (bytes >= 1024) {
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
   }
+  return '$bytes B';
 }

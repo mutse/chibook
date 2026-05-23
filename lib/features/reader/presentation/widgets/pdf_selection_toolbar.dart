@@ -5,11 +5,13 @@ class PdfSelectionToolbar extends StatelessWidget {
     super.key,
     required this.selectedText,
     required this.onReadAloud,
+    required this.onSaveHighlight,
     required this.onClear,
   });
 
   final String selectedText;
   final VoidCallback onReadAloud;
+  final VoidCallback onSaveHighlight;
   final VoidCallback onClear;
 
   @override
@@ -58,6 +60,14 @@ class PdfSelectionToolbar extends StatelessWidget {
                     onPressed: onReadAloud,
                     icon: const Icon(Icons.volume_up_outlined),
                     label: const Text('朗读选区'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: onSaveHighlight,
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: const Text('加入划线'),
                   ),
                 ),
                 const SizedBox(width: 12),

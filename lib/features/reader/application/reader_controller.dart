@@ -36,7 +36,9 @@ class ReaderAutoSpeechState {
 }
 
 final readerSpeechServiceProvider = Provider<ReaderSpeechService>((ref) {
-  return ReaderSpeechService();
+  final service = ReaderSpeechService();
+  ref.onDispose(service.dispose);
+  return service;
 });
 
 final pdfChapterServiceProvider = Provider<PdfChapterService>((ref) {

@@ -265,6 +265,11 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
                   activeCount: activeBooks.length,
                   finishedCount: insights.finishedBooks,
                 ),
+                const SizedBox(height: 16),
+                _ShelfActionDeck(
+                  books: recentBooks,
+                  onImport: widget.onImport,
+                ),
               ],
             ),
           ),
@@ -343,9 +348,32 @@ class _BookshelfBodyState extends State<_BookshelfBody> {
               if (index == 0) {
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Text(
-                    '共 ${filteredBooks.length} 本 · ${_sortLabel(_selectedSort)}',
-                    style: Theme.of(context).textTheme.bodyMedium,
+                  child: Row(
+                    children: [
+                      Text(
+                        '共 ${filteredBooks.length} 本 · ${_sortLabel(_selectedSort)}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.52),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '支持 EPUB / PDF 导入',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: const Color(0xFF5D7CFF),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                      ),
+                    ],
                   ),
                 );
               }
@@ -493,6 +521,128 @@ class _ContinueListeningBanner extends StatelessWidget {
           const SizedBox(width: 8),
           const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF5D7CFF)),
         ],
+      ),
+    );
+  }
+}
+
+class _ShelfActionDeck extends StatelessWidget {
+  const _ShelfActionDeck({
+    required this.books,
+    required this.onImport,
+  });
+
+  final List<Book> books;
+  final Future<void> Function() onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = books.isEmpty ? null : books.first;
+    final active = books.where((book) => book.progress > 0).length;
+
+    return SizedBox(
+      height: 150,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _ShelfActionCard(
+            width: 214,
+            title: '导入书籍',
+            subtitle: books.isEmpty ? '先把本地 EPUB / PDF 收进来' : '继续扩充你的内容仓库',
+            icon: Icons.file_upload_outlined,
+            colors: const [Color(0xFF5D7CFF), Color(0xFF84C9FF)],
+            darkForeground: true,
+            onTap: () async => onImport(),
+          ),
+          const SizedBox(width: 12),
+          _ShelfActionCard(
+            width: 214,
+            title: '阅读历史',
+            subtitle: latest == null ? '最近足迹会在这里出现' : '最近打开：${latest.title}',
+            icon: Icons.history_rounded,
+            colors: const [Color(0xFFEFF4FF), Color(0xFFD8E6FF)],
+            onTap: () => context.push('/history'),
+          ),
+          const SizedBox(width: 12),
+          _ShelfActionCard(
+            width: 214,
+            title: 'Chibook Pro',
+            subtitle: active == 0 ? '解锁云端朗读和离线缓存' : '升级后可缓存当前在读内容',
+            icon: Icons.workspace_premium_rounded,
+            colors: const [Color(0xFFFFF6E5), Color(0xFFFFE6BA)],
+            onTap: () {
+              context.push('/pro');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShelfActionCard extends StatelessWidget {
+  const _ShelfActionCard({
+    required this.width,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.colors,
+    required this.onTap,
+    this.darkForeground = false,
+  });
+
+  final double width;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> colors;
+  final VoidCallback onTap;
+  final bool darkForeground;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = darkForeground ? Colors.white : const Color(0xFF25314B);
+    return LiquidGlassCard(
+      radius: 28,
+      colors: colors,
+      onTap: onTap,
+      child: SizedBox(
+        width: width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: darkForeground
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : const Color(0xFF5D7CFF).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(icon, color: foreground),
+            ),
+            const Spacer(),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: darkForeground
+                        ? Colors.white.withValues(alpha: 0.82)
+                        : const Color(0xFF5B6786),
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -715,7 +865,7 @@ class _ShelfRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${book.author} · ${pseudoCategoryForBook(book)}',
+                  '${book.author} · ${book.formatLabel}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
@@ -732,6 +882,26 @@ class _ShelfRow extends StatelessWidget {
                 Text(
                   '${progressLabel(book)} · ${recencyLabel(book.lastReadAt ?? book.importedAt)}',
                   style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: () => context.push('/book/${book.id}/playlist'),
+                        icon: const Icon(Icons.queue_music_rounded),
+                        label: const Text('播放列表'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => context.push('/reader/${book.id}'),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: Text(book.progress > 0 ? '继续听' : '开始听'),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
                 const WaveformLine(

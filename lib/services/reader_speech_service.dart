@@ -3,37 +3,44 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:chibook/data/models/speech_settings.dart';
-import 'package:chibook/services/edge_tts/edge_tts_client.dart';
+import 'package:chibook/services/entitlement_service.dart';
 import 'package:chibook/services/edge_tts/edge_tts_voices.dart';
-import 'package:chibook/services/edge_tts/models.dart';
+import 'package:chibook/services/speech_cache_service.dart';
+import 'package:chibook/services/speech_playback_service.dart';
 import 'package:chibook/services/speech_settings_service.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class ReaderSpeechService {
   ReaderSpeechService({
     FlutterTts? flutterTts,
     http.Client? client,
-    AudioPlayer? audioPlayer,
-    EdgeTtsClient? edgeTtsClient,
+    SpeechSettingsService? speechSettingsService,
+    SpeechCacheService? speechCacheService,
+    SpeechPlaybackService? speechPlaybackService,
+    EntitlementService? entitlementService,
   })  : _flutterTts = flutterTts ?? FlutterTts(),
         _client = client ?? http.Client(),
-        _audioPlayer = audioPlayer ?? AudioPlayer(),
-        _edgeTtsClient = edgeTtsClient ?? EdgeTtsClient(httpClient: client) {
+        _speechSettingsService = speechSettingsService ?? SpeechSettingsService(),
+        _speechCacheService = speechCacheService,
+        _speechPlaybackService = speechPlaybackService ?? SpeechPlaybackService(),
+        _entitlementService = entitlementService ?? EntitlementService() {
     _configurePlaybackCallbacks();
   }
 
   final FlutterTts _flutterTts;
   final http.Client _client;
-  final AudioPlayer _audioPlayer;
-  final EdgeTtsClient _edgeTtsClient;
+  final SpeechSettingsService _speechSettingsService;
+  final SpeechCacheService? _speechCacheService;
+  final SpeechPlaybackService _speechPlaybackService;
+  final EntitlementService _entitlementService;
+
   Completer<void>? _playbackCompleter;
   Object? _activePlaybackToken;
+  StreamSubscription<void>? _completionSubscription;
 
   static const List<String> openAiVoices = [
     'alloy',
@@ -62,7 +69,13 @@ class ReaderSpeechService {
     final config = await _loadConfig();
     if (config.providerMode != SpeechProviderMode.local &&
         config.hasCloudConfig) {
-      final ok = await _tryCloudSpeech(text, config);
+      final ok = await _tryCloudSpeech(
+        text,
+        config,
+        bookId: 'preview',
+        segmentId: 'preview',
+        segmentLabel: 'Preview',
+      );
       if (ok) {
         return;
       }
@@ -80,7 +93,8 @@ class ReaderSpeechService {
   }) async {
     final config = await _loadConfig();
     if (config.providerMode != SpeechProviderMode.local &&
-        config.hasCloudConfig) {
+        config.hasCloudConfig &&
+        _speechCacheService != null) {
       final cachedFile = await _cachedAudioFile(
         bookId: bookId,
         segmentId: segmentId,
@@ -92,7 +106,14 @@ class ReaderSpeechService {
         return;
       }
 
-      final ok = await _tryCloudSpeech(text, config, targetFile: cachedFile);
+      final ok = await _tryCloudSpeech(
+        text,
+        config,
+        bookId: bookId,
+        segmentId: segmentId,
+        segmentLabel: segmentId,
+        targetFile: cachedFile,
+      );
       if (ok) {
         return;
       }
@@ -110,7 +131,8 @@ class ReaderSpeechService {
   }) async {
     final config = await _loadConfig();
     if (config.providerMode == SpeechProviderMode.local ||
-        !config.hasCloudConfig) {
+        !config.hasCloudConfig ||
+        _speechCacheService == null) {
       return;
     }
 
@@ -126,6 +148,9 @@ class ReaderSpeechService {
     final ok = await _tryCloudSpeech(
       text,
       config,
+      bookId: bookId,
+      segmentId: segmentId,
+      segmentLabel: segmentId,
       targetFile: cachedFile,
       autoplay: false,
     );
@@ -141,7 +166,8 @@ class ReaderSpeechService {
   }) async {
     final config = await _loadConfig();
     if (config.providerMode == SpeechProviderMode.local ||
-        !config.hasCloudConfig) {
+        !config.hasCloudConfig ||
+        _speechCacheService == null) {
       return false;
     }
     final file = await _cachedAudioFile(
@@ -154,24 +180,24 @@ class ReaderSpeechService {
   }
 
   Future<void> pause() async {
-    await _audioPlayer.pause();
+    await _speechPlaybackService.pause();
     await _flutterTts.pause();
   }
 
   Future<void> stop() async {
     _cancelTrackedPlayback();
-    await _audioPlayer.stop();
+    await _speechPlaybackService.stop();
     await _flutterTts.stop();
   }
 
   Future<void> resume() async {
-    await _audioPlayer.resume();
+    await _speechPlaybackService.resume();
   }
 
   Future<void> _speakLocally(String text) async {
     final config = await _loadConfig();
     _cancelTrackedPlayback();
-    await _audioPlayer.stop();
+    await _speechPlaybackService.stop();
     await _flutterTts.setSpeechRate(config.localSpeechRate);
     await _flutterTts.setPitch(1.0);
     await _flutterTts.awaitSpeakCompletion(true);
@@ -259,20 +285,51 @@ class ReaderSpeechService {
 
   Future<List<CloudVoiceOption>> listEdgeVoices({
     required String endpoint,
+    String apiKey = '',
   }) async {
-    final voices = await _edgeTtsClient.listVoices(endpoint: endpoint);
-    return voices
+    final normalizedApiKey = _normalizeApiKey(apiKey);
+    if (normalizedApiKey.isEmpty) {
+      return edgePreviewVoices
+          .map(
+            (voice) => CloudVoiceOption(
+              id: voice,
+              name: voice,
+              category: 'Preview',
+            ),
+          )
+          .toList(growable: false);
+    }
+    final response = await _client.get(
+      _azureVoicesUri(endpoint),
+      headers: {
+        'Ocp-Apim-Subscription-Key': normalizedApiKey,
+        'Accept': 'application/json',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Failed to load Azure Speech voices (${response.statusCode}): ${_extractErrorMessage(response.body)}',
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) return const [];
+    final voices = decoded
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
         .map(
-          (voice) => CloudVoiceOption(
-            id: voice.id,
-            name: voice.name,
+          (item) => CloudVoiceOption(
+            id: item['ShortName']?.toString().trim() ?? '',
+            name: item['DisplayName']?.toString().trim() ?? '',
             category: [
-              voice.locale,
-              voice.gender,
+              item['Locale']?.toString().trim() ?? '',
+              item['Gender']?.toString().trim() ?? '',
             ].where((value) => value.isNotEmpty).join(' · '),
           ),
         )
-        .toList();
+        .where((voice) => voice.id.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.label.compareTo(b.label));
+    return voices;
   }
 
   Future<void> _setLocalVoiceById(String voiceId) async {
@@ -304,6 +361,9 @@ class ReaderSpeechService {
   Future<bool> _tryCloudSpeech(
     String text,
     SpeechConfig config, {
+    required String bookId,
+    required String segmentId,
+    required String segmentLabel,
     File? targetFile,
     bool autoplay = true,
   }) async {
@@ -311,10 +371,9 @@ class ReaderSpeechService {
       await _flutterTts.stop();
       final audioBytes = switch (config.cloudProvider) {
         CloudTtsProvider.openai => await _postOpenAiSpeech(text, config),
-        CloudTtsProvider.microsoftEdge =>
-          await _postMicrosoftEdgeSpeech(text, config),
-        CloudTtsProvider.elevenlabs =>
-          await _postElevenLabsSpeech(text, config),
+        CloudTtsProvider.azureSpeech => await _postAzureSpeech(text, config),
+        CloudTtsProvider.microsoftEdge => await _postAzureSpeech(text, config),
+        CloudTtsProvider.elevenlabs => await _postElevenLabsSpeech(text, config),
       };
       if (audioBytes.isEmpty) {
         return false;
@@ -322,6 +381,16 @@ class ReaderSpeechService {
 
       final file = targetFile ?? await _uncachedAudioFile();
       await file.writeAsBytes(audioBytes, flush: true);
+      final speechCacheService = _speechCacheService;
+      if (speechCacheService != null && targetFile != null) {
+        await speechCacheService.registerCacheFile(
+          bookId: bookId,
+          segmentId: segmentId,
+          segmentLabel: segmentLabel,
+          providerName: config.cloudProviderLabel,
+          file: file,
+        );
+      }
       if (autoplay) {
         await _playCachedFile(file);
       }
@@ -332,69 +401,21 @@ class ReaderSpeechService {
   }
 
   Future<SpeechConfig> _loadConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    final providerModeName =
-        prefs.getString(SpeechSettingsStorageKeys.providerMode) ??
-            prefs.getString(SpeechSettingsStorageKeys.legacyProviderMode) ??
-            '';
-    final cloudProvider = _parseCloudProvider(
-          prefs.getString(SpeechSettingsStorageKeys.cloudProvider) ??
-              prefs.getString(SpeechSettingsStorageKeys.legacyCloudProvider),
-        ) ??
-        CloudTtsProvider.microsoftEdge;
+    final settings = await _speechSettingsService.load();
+    final isProUnlocked = await _entitlementService.isProUnlocked();
     return SpeechConfig(
-      providerMode: _parseMode(providerModeName),
-      cloudProvider: cloudProvider,
-      endpoint: SpeechSettings.normalizeEndpointFor(
-        cloudProvider,
-        prefs.getString(SpeechSettingsStorageKeys.endpoint) ??
-            prefs.getString(SpeechSettingsStorageKeys.legacyEndpoint) ??
-            '',
-      ),
-      apiKey: prefs.getString(SpeechSettingsStorageKeys.apiKey) ??
-          prefs.getString(SpeechSettingsStorageKeys.legacyApiKey) ??
-          '',
-      model: SpeechSettings.normalizeModelFor(
-        cloudProvider,
-        prefs.getString(SpeechSettingsStorageKeys.model) ??
-            prefs.getString(SpeechSettingsStorageKeys.legacyModel) ??
-            SpeechSettings.defaultModelFor(cloudProvider),
-      ),
-      voice: SpeechSettings.normalizeVoiceFor(
-        cloudProvider,
-        prefs.getString(SpeechSettingsStorageKeys.voice) ??
-            prefs.getString(SpeechSettingsStorageKeys.legacyVoice) ??
-            SpeechSettings.defaultVoiceFor(cloudProvider),
-      ),
-      localVoiceId: prefs.getString(SpeechSettingsStorageKeys.localVoiceId) ??
-          prefs.getString(SpeechSettingsStorageKeys.legacyLocalVoiceId) ??
-          '',
-      speed: prefs.getDouble(SpeechSettingsStorageKeys.speed) ??
-          prefs.getDouble(SpeechSettingsStorageKeys.legacySpeed) ??
-          1.0,
-      localSpeechRate:
-          prefs.getDouble(SpeechSettingsStorageKeys.localSpeechRate) ??
-              prefs.getDouble(
-                SpeechSettingsStorageKeys.legacyLocalSpeechRate,
-              ) ??
-              0.45,
+      providerMode: isProUnlocked
+          ? settings.providerMode
+          : SpeechProviderMode.local,
+      cloudProvider: settings.cloudProvider,
+      endpoint: settings.endpoint,
+      apiKey: settings.apiKey,
+      model: settings.model,
+      voice: settings.voice,
+      localVoiceId: settings.localVoiceId,
+      speed: settings.speed,
+      localSpeechRate: settings.localSpeechRate,
     );
-  }
-
-  SpeechProviderMode _parseMode(String value) {
-    if (value == 'openai') return SpeechProviderMode.cloud;
-    for (final mode in SpeechProviderMode.values) {
-      if (mode.name == value) return mode;
-    }
-    return SpeechProviderMode.auto;
-  }
-
-  CloudTtsProvider? _parseCloudProvider(String? value) {
-    if (value == null || value.isEmpty) return null;
-    for (final provider in CloudTtsProvider.values) {
-      if (provider.name == value) return provider;
-    }
-    return null;
   }
 
   Future<Uint8List> _postOpenAiSpeech(
@@ -461,25 +482,50 @@ class ReaderSpeechService {
     return Uint8List.fromList(response.bodyBytes);
   }
 
-  Future<Uint8List> _postMicrosoftEdgeSpeech(
+  Future<Uint8List> _postAzureSpeech(
     String text,
     SpeechConfig config,
   ) async {
-    return _edgeTtsClient.synthesize(
-      text,
-      TtsConfig(
-        voice: SpeechSettings.normalizeVoiceFor(
-          CloudTtsProvider.microsoftEdge,
-          config.voice,
-        ),
-        rate: _edgeRate(config.speed),
-        outputFormat: SpeechSettings.normalizeModelFor(
-          CloudTtsProvider.microsoftEdge,
+    final tokenResponse = await _client.post(
+      _azureTokenUri(config.endpoint),
+      headers: {
+        'Ocp-Apim-Subscription-Key': _normalizeApiKey(config.apiKey),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    );
+    if (tokenResponse.statusCode < 200 || tokenResponse.statusCode >= 300) {
+      throw Exception(_extractErrorMessage(tokenResponse.body));
+    }
+    final token = tokenResponse.body.trim();
+    final voice = SpeechSettings.normalizeVoiceFor(
+      CloudTtsProvider.azureSpeech,
+      config.voice,
+    );
+    final rate = _azureRate(config.speed);
+    final ssml = '''
+<speak version="1.0" xml:lang="en-US">
+  <voice name="$voice">
+    <prosody rate="$rate">$text</prosody>
+  </voice>
+</speak>
+''';
+    final response = await _client.post(
+      Uri.parse(config.endpoint),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/ssml+xml',
+        'X-Microsoft-OutputFormat': SpeechSettings.normalizeModelFor(
+          CloudTtsProvider.azureSpeech,
           config.model,
         ),
-      ),
-      endpoint: config.endpoint,
+        'User-Agent': 'Chibook',
+      },
+      body: ssml,
     );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(_extractErrorMessage(response.body));
+    }
+    return Uint8List.fromList(response.bodyBytes);
   }
 
   Uri _elevenLabsVoicesUri(String endpoint) {
@@ -524,9 +570,35 @@ class ReaderSpeechService {
     return voiceId;
   }
 
-  String _edgeRate(double speed) {
+  String _azureRate(double speed) {
     final delta = ((speed - 1.0) * 100).round().clamp(-100, 100);
     return '${delta >= 0 ? '+' : ''}$delta%';
+  }
+
+  Uri _azureTokenUri(String endpoint) {
+    final speechUri = Uri.parse(
+      SpeechSettings.normalizeEndpointFor(
+        CloudTtsProvider.azureSpeech,
+        endpoint,
+      ),
+    );
+    final host = speechUri.host.endsWith('.tts.speech.microsoft.com')
+        ? speechUri.host.replaceFirst(
+            '.tts.speech.microsoft.com',
+            '.api.cognitive.microsoft.com',
+          )
+        : '${speechUri.host}.api.cognitive.microsoft.com';
+    return Uri.https(host, '/sts/v1.0/issueToken');
+  }
+
+  Uri _azureVoicesUri(String endpoint) {
+    final speechUri = Uri.parse(
+      SpeechSettings.normalizeEndpointFor(
+        CloudTtsProvider.azureSpeech,
+        endpoint,
+      ),
+    );
+    return speechUri.replace(path: '/cognitiveservices/voices/list');
   }
 
   String _normalizeApiKey(String raw) {
@@ -543,7 +615,10 @@ class ReaderSpeechService {
       '',
     );
     value = value.replaceFirst(
-      RegExp(r'^Ocp-Apim-Subscription-Key\s*:\s*', caseSensitive: false),
+      RegExp(
+        r'^Ocp-Apim-Subscription-Key\b\s*:?\s*',
+        caseSensitive: false,
+      ),
       '',
     );
     value = value.replaceFirst(
@@ -584,8 +659,10 @@ class ReaderSpeechService {
     return switch (config.cloudProvider) {
       CloudTtsProvider.openai =>
         'OpenAI TTS request failed. Please check your endpoint, voice and API key.',
+      CloudTtsProvider.azureSpeech =>
+        'Azure Speech request failed. Please check your region endpoint, voice and API key.',
       CloudTtsProvider.microsoftEdge =>
-        'Microsoft Edge TTS request failed. Please check your endpoint and voice.',
+        'Azure Speech request failed. Please check your region endpoint, voice and API key.',
       CloudTtsProvider.elevenlabs =>
         'ElevenLabs TTS request failed. Please check your endpoint, voice and API key.',
     };
@@ -607,25 +684,24 @@ class ReaderSpeechService {
     required String text,
     required SpeechConfig config,
   }) async {
-    final baseDir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory(path.join(baseDir.path, 'audio_cache', bookId));
-    if (!cacheDir.existsSync()) {
-      await cacheDir.create(recursive: true);
+    final speechCacheService = _speechCacheService;
+    if (speechCacheService == null) {
+      return _uncachedAudioFile();
     }
-
     final hash = _cacheKey(
       '$segmentId|${config.model}|${config.voice}|${config.speed}|$text',
     );
-    return File(path.join(cacheDir.path, '${_safeSlug(segmentId)}_$hash.mp3'));
+    return speechCacheService.cachedFile(
+      bookId: bookId,
+      fileName: '${_safeSlug(segmentId)}_$hash.mp3',
+    );
   }
 
   Future<void> _playCachedFile(File file) async {
     _cancelTrackedPlayback();
-    await _audioPlayer.stop();
+    await _speechPlaybackService.stop();
     await _runTrackedPlayback(
-      () => _audioPlayer.play(
-        DeviceFileSource(file.path, mimeType: 'audio/mpeg'),
-      ),
+      () => _speechPlaybackService.playFile(file),
     );
   }
 
@@ -637,7 +713,10 @@ class ReaderSpeechService {
     _flutterTts.setErrorHandler((error) {
       _failTrackedPlayback(Exception(error));
     });
-    _audioPlayer.onPlayerComplete.listen((_) => _completeTrackedPlayback());
+    _completionSubscription =
+        _speechPlaybackService.onPlaybackCompleted.listen((_) {
+      _completeTrackedPlayback();
+    });
   }
 
   Future<void> _runTrackedPlayback(Future<dynamic> Function() starter) async {
@@ -696,6 +775,12 @@ class ReaderSpeechService {
     final sanitized = input.replaceAll(RegExp(r'[^a-zA-Z0-9_-]+'), '_');
     return sanitized.length > 32 ? sanitized.substring(0, 32) : sanitized;
   }
+
+  Future<void> dispose() async {
+    await _completionSubscription?.cancel();
+    await _speechPlaybackService.dispose();
+    _client.close();
+  }
 }
 
 class SpeechConfig {
@@ -724,7 +809,8 @@ class SpeechConfig {
   String get cloudProviderLabel {
     return switch (cloudProvider) {
       CloudTtsProvider.openai => 'OpenAI',
-      CloudTtsProvider.microsoftEdge => 'Microsoft Edge',
+      CloudTtsProvider.azureSpeech => 'Azure Speech',
+      CloudTtsProvider.microsoftEdge => 'Azure Speech',
       CloudTtsProvider.elevenlabs => 'ElevenLabs',
     };
   }
@@ -732,7 +818,9 @@ class SpeechConfig {
   bool get hasCloudConfig {
     return switch (cloudProvider) {
       CloudTtsProvider.openai => endpoint.isNotEmpty && apiKey.isNotEmpty,
-      CloudTtsProvider.microsoftEdge => endpoint.isNotEmpty,
+      CloudTtsProvider.azureSpeech => endpoint.isNotEmpty && apiKey.isNotEmpty,
+      CloudTtsProvider.microsoftEdge =>
+        endpoint.isNotEmpty && apiKey.isNotEmpty,
       CloudTtsProvider.elevenlabs => endpoint.isNotEmpty && apiKey.isNotEmpty,
     };
   }

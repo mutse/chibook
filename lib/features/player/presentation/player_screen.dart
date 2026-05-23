@@ -2,6 +2,7 @@ import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/data/models/epub_models.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
+import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
@@ -47,9 +48,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _PlayerTopBar(
+              currentBook: null,
               onTimerTap: () => _showTimerSheet(context),
               onSpeedTap: () => _showSpeedSheet(context),
               onChaptersTap: () {},
+              onPlaylistTap: null,
             ),
             const Spacer(),
             LiquidGlassCard(
@@ -105,6 +108,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final autoSpeech = ref.watch(readerAutoSpeechProvider(currentBook.id));
     final excerpt = ref.watch(readerExcerptProvider(currentBook.id));
     final settings = ref.watch(speechSettingsControllerProvider).valueOrNull;
+    final totalMinutes = estimateBookMinutes(currentBook);
+    final consumedMinutes =
+        (totalMinutes * currentBook.progress.clamp(0.0, 1.0)).round();
+    final remainingMinutes = (totalMinutes - consumedMinutes).clamp(0, 999);
+    final locationLabel = autoSpeech?.label ?? '从书籍开头开始';
     final queue = [
       ...recentBooks.skip(currentIndex + 1),
       ...recentBooks.take(currentIndex),
@@ -114,9 +122,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
       children: [
         _PlayerTopBar(
+          currentBook: currentBook,
           onTimerTap: () => _showTimerSheet(context),
           onSpeedTap: () => _showSpeedSheet(context),
           onChaptersTap: () => _showChapterSheet(context, currentBook),
+          onPlaylistTap: () => context.push('/book/${currentBook.id}/playlist'),
         ),
         const SizedBox(height: 16),
         Center(
@@ -178,6 +188,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               ),
         ),
         const SizedBox(height: 18),
+        _NowPlayingSnapshot(
+          currentBook: currentBook,
+          speechState: speechState,
+          locationLabel: locationLabel,
+          totalMinutes: totalMinutes,
+          remainingMinutes: remainingMinutes,
+        ),
+        const SizedBox(height: 18),
         LiquidGlassCard(
           colors: const [Color(0x33FFFFFF), Color(0x14FFFFFF)],
           child: Column(
@@ -213,28 +231,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               Row(
                 children: [
                   Text(
-                    '当前章节',
+                    _formatPlaybackTime(consumedMinutes),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Colors.white.withValues(alpha: 0.72),
                         ),
                   ),
                   const Spacer(),
                   Text(
-                    '${(currentBook.progress.clamp(0, 1) * 100).round()}%',
+                    _formatPlaybackTime(totalMinutes),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Colors.white.withValues(alpha: 0.72),
                         ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              const WaveformLine(
-                color: Colors.white,
-                barCount: 18,
-                barWidth: 2.6,
-                minHeight: 4,
-                maxHeight: 14,
-                spacing: 2.8,
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _PlaybackMetaChip(
+                    icon: Icons.timelapse_rounded,
+                    label: '剩余 $remainingMinutes 分钟',
+                  ),
+                  const SizedBox(width: 10),
+                  _PlaybackMetaChip(
+                    icon: Icons.bookmark_outline_rounded,
+                    label: locationLabel,
+                    expanded: true,
+                  ),
+                ],
               ),
             ],
           ),
@@ -289,6 +313,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ),
         ),
         const SizedBox(height: 18),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _PlayerActionChip(
+              icon: Icons.speed_rounded,
+              label: '${settings?.speed.toStringAsFixed(1) ?? '1.0'}x',
+              onTap: () => _showSpeedSheet(context),
+            ),
+            _PlayerActionChip(
+              icon: Icons.timer_outlined,
+              label: '定时',
+              onTap: () => _showTimerSheet(context),
+            ),
+            _PlayerActionChip(
+              icon: Icons.toc_rounded,
+              label: '目录',
+              onTap: () => _showChapterSheet(context, currentBook),
+            ),
+            _PlayerActionChip(
+              icon: Icons.queue_music_rounded,
+              label: '列表',
+              onTap: () => context.push('/book/${currentBook.id}/playlist'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
         Row(
           children: [
             Expanded(
@@ -328,7 +379,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    pseudoCategoryForBook(currentBook),
+                    currentBook.formatLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.white.withValues(alpha: 0.68),
                         ),
@@ -350,12 +401,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         ),
         const SizedBox(height: 18),
         if (queue.isNotEmpty) ...[
-          Text(
-            '接下来播放',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
+          SectionHeader(
+            title: '接下来播放',
+            actionLabel: '查看完整列表',
+            onTap: () => context.push('/book/${currentBook.id}/playlist'),
           ),
           const SizedBox(height: 12),
           ...queue.map(
@@ -421,38 +470,47 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
 class _PlayerTopBar extends StatelessWidget {
   const _PlayerTopBar({
+    required this.currentBook,
     required this.onTimerTap,
     required this.onSpeedTap,
     required this.onChaptersTap,
+    required this.onPlaylistTap,
   });
 
+  final Book? currentBook;
   final VoidCallback onTimerTap;
   final VoidCallback onSpeedTap;
   final VoidCallback onChaptersTap;
+  final VoidCallback? onPlaylistTap;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '播放页',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '把听书控制收拢到一个更沉浸的入口里',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.74),
-                  ),
-            ),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '播放中',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                currentBook == null
+                    ? '把听书控制收拢到一个更沉浸的入口里'
+                    : '播放列表 · ${currentBook!.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.74),
+                    ),
+              ),
+            ],
+          ),
         ),
-        const Spacer(),
         IconButton(
           onPressed: onSpeedTap,
           icon: const Icon(Icons.speed_rounded, color: Colors.white),
@@ -466,11 +524,157 @@ class _PlayerTopBar extends StatelessWidget {
           icon: const Icon(Icons.toc_rounded, color: Colors.white),
         ),
         IconButton(
+          onPressed: onPlaylistTap,
+          icon: const Icon(Icons.queue_music_rounded, color: Colors.white),
+        ),
+        IconButton(
           onPressed: () => context.push('/settings'),
           icon: const Icon(Icons.tune_rounded, color: Colors.white),
         ),
       ],
     );
+  }
+}
+
+class _NowPlayingSnapshot extends StatelessWidget {
+  const _NowPlayingSnapshot({
+    required this.currentBook,
+    required this.speechState,
+    required this.locationLabel,
+    required this.totalMinutes,
+    required this.remainingMinutes,
+  });
+
+  final Book currentBook;
+  final ReaderSpeechState speechState;
+  final String locationLabel;
+  final int totalMinutes;
+  final int remainingMinutes;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      colors: const [Color(0x33FFFFFF), Color(0x14FFFFFF)],
+      child: Row(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: bookPalette(currentBook),
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Icon(
+              speechState == ReaderSpeechState.playing
+                  ? Icons.graphic_eq_rounded
+                  : Icons.pause_circle_outline_rounded,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    speechState == ReaderSpeechState.playing
+                        ? 'AI 朗读中'
+                        : '准备继续',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  locationLabel,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '全书约 $totalMinutes 分钟 · 剩余约 $remainingMinutes 分钟',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.74),
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaybackMetaChip extends StatelessWidget {
+  const _PlaybackMetaChip({
+    required this.icon,
+    required this.label,
+    this.expanded = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: Colors.white),
+          const SizedBox(width: 6),
+          if (expanded)
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Colors.white,
+                    ),
+              ),
+            )
+          else
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: Colors.white,
+                  ),
+            ),
+        ],
+      ),
+    );
+    return expanded
+        ? Expanded(
+            child: child,
+          )
+        : child;
   }
 }
 
@@ -636,6 +840,16 @@ class _QueueTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatPlaybackTime(int minutes) {
+  final safeMinutes = minutes.clamp(0, 9999);
+  final hour = safeMinutes ~/ 60;
+  final minute = safeMinutes % 60;
+  if (hour <= 0) {
+    return '00:${minute.toString().padLeft(2, '0')}';
+  }
+  return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 }
 
 class _TimerSheet extends StatelessWidget {

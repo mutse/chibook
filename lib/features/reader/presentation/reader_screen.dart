@@ -3,12 +3,12 @@ import 'package:chibook/data/models/pdf_chapter_data.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
 import 'package:chibook/data/models/reader_preferences.dart';
 import 'package:chibook/data/models/speech_settings.dart';
+import 'package:chibook/features/pro/application/providers.dart';
 import 'package:chibook/features/reader/application/epub_reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:chibook/features/reader/application/reader_preferences_controller.dart';
 import 'package:chibook/features/reader/presentation/widgets/epub_reader_view.dart';
 import 'package:chibook/features/reader/presentation/widgets/pdf_reader_view.dart';
-import 'package:chibook/features/reader/presentation/widgets/reader_preferences_sheet.dart';
 import 'package:chibook/features/settings/application/speech_settings_controller.dart';
 import 'package:chibook/services/reader_speech_service.dart';
 import 'package:flutter/material.dart';
@@ -43,30 +43,45 @@ class ReaderScreen extends ConsumerWidget {
               builder: (context, constraints) {
                 final isLandscape =
                     constraints.maxWidth > constraints.maxHeight;
-                return Column(
+                final brightnessAlpha =
+                    ((1 - preferences.brightness).clamp(0.0, 0.55) * 0.72)
+                        .toDouble();
+                return Stack(
                   children: [
-                    _ReaderHeader(
-                      book: book,
-                      colors: screenColors,
-                      isLandscape: isLandscape,
+                    Column(
+                      children: [
+                        _ReaderHeader(
+                          book: book,
+                          colors: screenColors,
+                          isLandscape: isLandscape,
+                        ),
+                        Expanded(
+                          child: switch (book.format) {
+                            BookFormat.pdf => PdfReaderView(
+                                book: book,
+                                compact: isLandscape,
+                              ),
+                            BookFormat.epub => EpubReaderView(
+                                book: book,
+                                compact: isLandscape,
+                              ),
+                          },
+                        ),
+                        _SpeechBar(
+                          book: book,
+                          colors: screenColors,
+                          isLandscape: isLandscape,
+                        ),
+                      ],
                     ),
-                    Expanded(
-                      child: switch (book.format) {
-                        BookFormat.pdf => PdfReaderView(
-                            book: book,
-                            compact: isLandscape,
-                          ),
-                        BookFormat.epub => EpubReaderView(
-                            book: book,
-                            compact: isLandscape,
-                          ),
-                      },
-                    ),
-                    _SpeechBar(
-                      book: book,
-                      colors: screenColors,
-                      isLandscape: isLandscape,
-                    ),
+                    if (brightnessAlpha > 0)
+                      IgnorePointer(
+                        child: ColoredBox(
+                          color:
+                              Colors.black.withValues(alpha: brightnessAlpha),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -109,13 +124,7 @@ class _ReaderHeader extends ConsumerWidget {
       child: Row(
         children: [
           IconButton(
-            onPressed: () {
-              showModalBottomSheet<void>(
-                context: context,
-                showDragHandle: true,
-                builder: (context) => const ReaderPreferencesSheet(),
-              );
-            },
+            onPressed: () => context.push('/reader-settings'),
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
             icon: Icon(Icons.palette_outlined, color: colors.foreground),
@@ -207,6 +216,18 @@ class _ReaderHeader extends ConsumerWidget {
                 ],
               ],
             ),
+          ),
+          IconButton(
+            onPressed: () => context.push('/book/${book.id}/notebook'),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            icon: Icon(Icons.sticky_note_2_outlined, color: colors.foreground),
+          ),
+          IconButton(
+            onPressed: () => context.push('/pro'),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            icon: Icon(Icons.workspace_premium_outlined, color: colors.foreground),
           ),
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -405,6 +426,18 @@ class _SpeechBar extends ConsumerWidget {
                       },
                 icon: const Icon(Icons.download_for_offline_outlined),
               ),
+            IconButton(
+              tooltip: '划线与笔记',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => context.push('/book/${book.id}/notebook'),
+              icon: const Icon(Icons.bookmarks_outlined),
+            ),
+            IconButton(
+              tooltip: '升级到 Pro',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => context.push('/pro'),
+              icon: const Icon(Icons.workspace_premium_outlined),
+            ),
             const SizedBox(width: 4),
             OutlinedButton.icon(
               onPressed: controller.stopSpeech,
@@ -663,7 +696,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   String _selectedOpenAiVoice = ReaderSpeechService.openAiVoices.first;
   String _selectedEdgeVoice = ReaderSpeechService.edgePreviewVoices.first;
   String _selectedElevenLabsVoice = '';
-  CloudTtsProvider _cloudProvider = CloudTtsProvider.openai;
+  CloudTtsProvider _cloudProvider = CloudTtsProvider.azureSpeech;
   String _localVoiceId = '';
   List<CloudVoiceOption> _edgeVoices = const [];
   List<CloudVoiceOption> _elevenLabsVoices = const [];
@@ -688,6 +721,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   @override
   Widget build(BuildContext context) {
     final settingsAsync = ref.watch(speechSettingsControllerProvider);
+    final proUnlocked = ref.watch(proUnlockedProvider).valueOrNull ?? false;
 
     ref.listen<AsyncValue<SpeechSettings>>(speechSettingsControllerProvider, (
       previous,
@@ -729,41 +763,47 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                     ?.copyWith(color: const Color(0xFF5D645F)),
               ),
               const SizedBox(height: 20),
-              _CloudProviderBadge(provider: _cloudProvider),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<CloudTtsProvider>(
-                initialValue: _cloudProvider,
-                decoration: const InputDecoration(labelText: '云端提供商'),
-                items: const [
-                  DropdownMenuItem(
-                    value: CloudTtsProvider.openai,
-                    child: Text('OpenAI'),
-                  ),
-                  DropdownMenuItem(
-                    value: CloudTtsProvider.microsoftEdge,
-                    child: Text('Microsoft Edge'),
-                  ),
-                  DropdownMenuItem(
-                    value: CloudTtsProvider.elevenlabs,
-                    child: Text('ElevenLabs'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() {
-                    _cloudProvider = value;
-                    if (value == CloudTtsProvider.openai) {
-                      _customVoiceController.text = _selectedOpenAiVoice;
-                    } else if (value == CloudTtsProvider.microsoftEdge) {
-                      _customVoiceController.text = _selectedEdgeVoice;
-                    } else {
-                      _customVoiceController.text = _selectedElevenLabsVoice;
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              if (_cloudProvider == CloudTtsProvider.openai) ...[
+              if (!proUnlocked) ...[
+                const _ReaderCloudUpgradeNotice(),
+                const SizedBox(height: 16),
+              ],
+              if (proUnlocked) ...[
+                _CloudProviderBadge(provider: _cloudProvider),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<CloudTtsProvider>(
+                  initialValue: _cloudProvider,
+                  decoration: const InputDecoration(labelText: '云端提供商'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: CloudTtsProvider.openai,
+                      child: Text('OpenAI'),
+                    ),
+                    DropdownMenuItem(
+                      value: CloudTtsProvider.azureSpeech,
+                      child: Text('Azure Speech'),
+                    ),
+                    DropdownMenuItem(
+                      value: CloudTtsProvider.elevenlabs,
+                      child: Text('ElevenLabs'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _cloudProvider = _normalizedProvider(value);
+                      if (value == CloudTtsProvider.openai) {
+                        _customVoiceController.text = _selectedOpenAiVoice;
+                      } else if (_isAzureSpeechProvider(value)) {
+                        _customVoiceController.text = _selectedEdgeVoice;
+                      } else {
+                        _customVoiceController.text = _selectedElevenLabsVoice;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (proUnlocked && _cloudProvider == CloudTtsProvider.openai) ...[
                 DropdownButtonFormField<String>(
                   initialValue: ReaderSpeechService.openAiVoices.contains(
                     _selectedOpenAiVoice,
@@ -788,7 +828,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                   },
                 ),
               ],
-              if (_cloudProvider == CloudTtsProvider.microsoftEdge) ...[
+              if (proUnlocked && _isAzureSpeechProvider(_cloudProvider)) ...[
                 DropdownButtonFormField<String>(
                   initialValue: ReaderSpeechService.edgePreviewVoices.contains(
                     _selectedEdgeVoice,
@@ -796,7 +836,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                       ? _selectedEdgeVoice
                       : null,
                   decoration: const InputDecoration(
-                    labelText: '常用 Microsoft Edge 声音',
+                    labelText: '常用 Azure Speech 声音',
                   ),
                   items: ReaderSpeechService.edgePreviewVoices
                       .map(
@@ -833,8 +873,8 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                             : const Icon(Icons.cloud_download_outlined),
                         label: Text(
                           _edgeVoices.isEmpty
-                              ? '加载 Microsoft Edge Voices'
-                              : '刷新 Microsoft Edge Voices',
+                              ? '加载 Azure Speech Voices'
+                              : '刷新 Azure Speech Voices',
                         ),
                       ),
                     ),
@@ -861,7 +901,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                         ? _customVoiceController.text.trim()
                         : null,
                     decoration: const InputDecoration(
-                      labelText: '选择 Microsoft Edge Voice',
+                      labelText: '选择 Azure Speech Voice',
                     ),
                     items: _edgeVoices
                         .map(
@@ -885,7 +925,8 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                   ),
                 ],
               ],
-              if (_cloudProvider == CloudTtsProvider.elevenlabs) ...[
+              if (proUnlocked &&
+                  _cloudProvider == CloudTtsProvider.elevenlabs) ...[
                 Row(
                   children: [
                     Expanded(
@@ -956,24 +997,29 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
                   ),
                 ],
               ],
-              const SizedBox(height: 12),
-              TextField(
-                controller: _customVoiceController,
-                decoration: InputDecoration(
-                  labelText: switch (_cloudProvider) {
-                    CloudTtsProvider.openai => '自定义 OpenAI Voice（可选）',
-                    CloudTtsProvider.microsoftEdge => 'Microsoft Edge Voice',
-                    CloudTtsProvider.elevenlabs => 'ElevenLabs Voice ID',
-                  },
-                  hintText: switch (_cloudProvider) {
-                    CloudTtsProvider.openai => '例如: alloy',
-                    CloudTtsProvider.microsoftEdge =>
-                      '例如: zh-CN-XiaoxiaoNeural',
-                    CloudTtsProvider.elevenlabs => '例如: EXAVITQu4vr4xnSDxMaL',
-                  },
+              if (proUnlocked) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _customVoiceController,
+                  decoration: InputDecoration(
+                    labelText: switch (_normalizedProvider(_cloudProvider)) {
+                      CloudTtsProvider.openai => '自定义 OpenAI Voice（可选）',
+                      CloudTtsProvider.azureSpeech => 'Azure Speech Voice',
+                      CloudTtsProvider.elevenlabs => 'ElevenLabs Voice ID',
+                      CloudTtsProvider.microsoftEdge => 'Azure Speech Voice',
+                    },
+                    hintText: switch (_normalizedProvider(_cloudProvider)) {
+                      CloudTtsProvider.openai => '例如: alloy',
+                      CloudTtsProvider.azureSpeech =>
+                        '例如: zh-CN-XiaoxiaoNeural',
+                      CloudTtsProvider.elevenlabs => '例如: EXAVITQu4vr4xnSDxMaL',
+                      CloudTtsProvider.microsoftEdge =>
+                        '例如: zh-CN-XiaoxiaoNeural',
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
+              ],
               localVoicesAsync.when(
                 data: (voices) {
                   final hasCurrentSelection = _localVoiceId.isNotEmpty &&
@@ -1014,37 +1060,43 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
               FilledButton(
                 onPressed: () async {
                   final voice = _customVoiceController.text.trim();
-                  final nextVoice = switch (_cloudProvider) {
+                  final normalizedProvider = _normalizedProvider(
+                    _cloudProvider,
+                  );
+                  final nextVoice = switch (normalizedProvider) {
                     CloudTtsProvider.openai =>
                       voice.isEmpty ? _selectedOpenAiVoice : voice,
-                    CloudTtsProvider.microsoftEdge =>
+                    CloudTtsProvider.azureSpeech =>
                       voice.isEmpty ? _selectedEdgeVoice : voice,
                     CloudTtsProvider.elevenlabs =>
                       voice.isEmpty ? _selectedElevenLabsVoice : voice,
+                    CloudTtsProvider.microsoftEdge =>
+                      voice.isEmpty ? _selectedEdgeVoice : voice,
                   };
                   final providerChanged =
-                      settings.cloudProvider != _cloudProvider;
+                      _normalizedProvider(settings.cloudProvider) !=
+                          normalizedProvider;
                   final messenger = ScaffoldMessenger.of(context);
                   await ref
                       .read(speechSettingsControllerProvider.notifier)
                       .save(
                         settings.copyWith(
-                          cloudProvider: _cloudProvider,
+                          providerMode: proUnlocked
+                              ? settings.providerMode
+                              : SpeechProviderMode.local,
+                          cloudProvider: normalizedProvider,
                           endpoint: providerChanged
                               ? SpeechSettings.defaultEndpointFor(
-                                  _cloudProvider,
+                                  normalizedProvider,
                                 )
                               : SpeechSettings.normalizeEndpointFor(
-                                  settings.cloudProvider,
+                                  _normalizedProvider(settings.cloudProvider),
                                   settings.endpoint,
                                 ),
-                          apiKey:
-                              _cloudProvider == CloudTtsProvider.microsoftEdge
-                                  ? ''
-                                  : settings.apiKey,
+                          apiKey: settings.apiKey,
                           model: providerChanged
                               ? SpeechSettings.defaultModelFor(
-                                  _cloudProvider,
+                                  normalizedProvider,
                                 )
                               : settings.model,
                           voice: nextVoice,
@@ -1074,7 +1126,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   }
 
   void _applySettings(SpeechSettings settings) {
-    final effectiveProvider = settings.cloudProvider;
+    final effectiveProvider = _normalizedProvider(settings.cloudProvider);
     final effectiveVoice = settings.voice.isEmpty
         ? SpeechSettings.defaultVoiceFor(effectiveProvider)
         : settings.voice;
@@ -1085,9 +1137,9 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
             ReaderSpeechService.openAiVoices.contains(effectiveVoice)
         ? effectiveVoice
         : ReaderSpeechService.openAiVoices.first;
-    _selectedEdgeVoice = effectiveProvider == CloudTtsProvider.microsoftEdge
+    _selectedEdgeVoice = _isAzureSpeechProvider(effectiveProvider)
         ? effectiveVoice
-        : SpeechSettings.defaultVoiceFor(CloudTtsProvider.microsoftEdge);
+        : SpeechSettings.defaultVoiceFor(CloudTtsProvider.azureSpeech);
     _selectedElevenLabsVoice =
         effectiveProvider == CloudTtsProvider.elevenlabs ? effectiveVoice : '';
     _customVoiceController.text = settings.voice;
@@ -1096,12 +1148,13 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   }
 
   Future<void> _loadEdgeVoices(SpeechSettings settings) async {
-    final endpoint = _cloudProvider == settings.cloudProvider
+    final normalizedProvider = _normalizedProvider(settings.cloudProvider);
+    final endpoint = _cloudProvider == normalizedProvider
         ? SpeechSettings.normalizeEndpointFor(
-            settings.cloudProvider,
+            normalizedProvider,
             settings.endpoint,
           )
-        : SpeechSettings.defaultEndpointFor(CloudTtsProvider.microsoftEdge);
+        : SpeechSettings.defaultEndpointFor(CloudTtsProvider.azureSpeech);
 
     setState(() {
       _loadingEdgeVoices = true;
@@ -1111,6 +1164,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
     try {
       final voices = await ref.read(readerSpeechServiceProvider).listEdgeVoices(
             endpoint: endpoint,
+            apiKey: settings.apiKey,
           );
       if (!mounted) return;
       setState(() {
@@ -1120,7 +1174,7 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
       if (!mounted) return;
       setState(() {
         _edgeVoices = const [];
-        _edgeVoicesError = '加载 Microsoft Edge voices 失败: $error';
+        _edgeVoicesError = '加载 Azure Speech voices 失败: $error';
       });
     } finally {
       if (mounted) {
@@ -1132,9 +1186,10 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
   }
 
   Future<void> _loadElevenLabsVoices(SpeechSettings settings) async {
-    final endpoint = _cloudProvider == settings.cloudProvider
+    final normalizedProvider = _normalizedProvider(settings.cloudProvider);
+    final endpoint = _cloudProvider == normalizedProvider
         ? SpeechSettings.normalizeEndpointFor(
-            settings.cloudProvider,
+            normalizedProvider,
             settings.endpoint,
           )
         : SpeechSettings.defaultEndpointFor(CloudTtsProvider.elevenlabs);
@@ -1168,6 +1223,48 @@ class _VoiceQuickSheetState extends ConsumerState<_VoiceQuickSheet> {
       }
     }
   }
+
+  CloudTtsProvider _normalizedProvider(CloudTtsProvider provider) {
+    return provider == CloudTtsProvider.microsoftEdge
+        ? CloudTtsProvider.azureSpeech
+        : provider;
+  }
+
+  bool _isAzureSpeechProvider(CloudTtsProvider provider) {
+    return _normalizedProvider(provider) == CloudTtsProvider.azureSpeech;
+  }
+}
+
+class _ReaderCloudUpgradeNotice extends StatelessWidget {
+  const _ReaderCloudUpgradeNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F0E4),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '云端声音与缓存属于 Pro 功能',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '免费版会继续使用本地 TTS。升级后可在这里切换 Azure Speech、OpenAI 或 ElevenLabs。',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CloudProviderBadge extends StatelessWidget {
@@ -1179,8 +1276,9 @@ class _CloudProviderBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = switch (provider) {
       CloudTtsProvider.openai => '当前云端提供商: OpenAI',
-      CloudTtsProvider.microsoftEdge => '当前云端提供商: Microsoft Edge',
+      CloudTtsProvider.azureSpeech => '当前云端提供商: Azure Speech',
       CloudTtsProvider.elevenlabs => '当前云端提供商: ElevenLabs',
+      CloudTtsProvider.microsoftEdge => '当前云端提供商: Azure Speech',
     };
 
     return Container(
