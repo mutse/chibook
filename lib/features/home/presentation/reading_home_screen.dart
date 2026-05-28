@@ -1,3 +1,4 @@
+import 'package:chibook/app/app_logo.dart';
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
@@ -386,16 +387,11 @@ class _HomeHeader extends StatelessWidget {
         Container(
           width: 54,
           height: 54,
-          decoration: const BoxDecoration(
-            borderRadius: BorderRadius.all(Radius.circular(18)),
-            gradient: LinearGradient(
-              colors: [Color(0xFF76C7FF), Color(0xFF7E7BFF)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+          alignment: Alignment.center,
+          child: const AppLogo(
+            size: 54,
+            radius: 18,
           ),
-          child: const Icon(Icons.graphic_eq_rounded,
-              color: Colors.white, size: 30),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -610,9 +606,7 @@ class _QuickActions extends StatelessWidget {
       (
         '继续阅读',
         Icons.menu_book_rounded,
-        featured == null
-            ? null
-            : () => context.push('/book/${featured!.id}'),
+        featured == null ? null : () => context.push('/book/${featured!.id}'),
       ),
       (
         '播放列表',
