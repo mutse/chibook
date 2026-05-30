@@ -1,3 +1,4 @@
+import 'package:chibook/app/app_logo.dart';
 import 'dart:async';
 
 import 'package:chibook/app/liquid_ui.dart';
@@ -90,25 +91,10 @@ class WelcomeScreen extends ConsumerWidget {
                             Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Container(
-                                  width: 64,
-                                  height: 64,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Color(0xFF7CBFFF),
-                                        Color(0xFF5B74FF),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                  child: const Icon(
-                                    Icons.auto_stories_rounded,
-                                    color: Colors.white,
-                                    size: 34,
-                                  ),
+                                const AppLogo(
+                                  size: 82,
+                                  radius: 28,
+                                  backgroundColor: Colors.white,
                                 ),
                                 const SizedBox(height: 18),
                                 Text(
