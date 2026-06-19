@@ -37,6 +37,17 @@ class AdaptiveLayoutData {
     );
   }
 
+  factory AdaptiveLayoutData.fromConstraints(
+    BoxConstraints constraints, {
+    required double fallbackWidth,
+  }) {
+    final width = constraints.hasBoundedWidth && constraints.maxWidth.isFinite
+        ? constraints.maxWidth
+        : fallbackWidth;
+
+    return AdaptiveLayoutData.fromWidth(width);
+  }
+
   final double width;
   final AdaptiveSizeClass sizeClass;
   final double horizontalPadding;

@@ -13,19 +13,27 @@ class AdaptiveContentContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final layout = context.adaptiveLayout;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final layout = AdaptiveLayoutData.fromConstraints(
+          constraints,
+          fallbackWidth: MediaQuery.sizeOf(context).width,
+        );
 
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth ?? layout.contentMaxWidth,
-        ),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: layout.horizontalPadding),
-          child: child,
-        ),
-      ),
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth ?? layout.contentMaxWidth,
+            ),
+            child: Padding(
+              padding:
+                  EdgeInsets.symmetric(horizontal: layout.horizontalPadding),
+              child: child,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -48,26 +56,33 @@ class AdaptiveTwoPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final layout = context.adaptiveLayout;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final layout = AdaptiveLayoutData.fromConstraints(
+          constraints,
+          fallbackWidth: MediaQuery.sizeOf(context).width,
+        );
 
-    if (layout.isCompact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          primary,
-          SizedBox(height: spacing),
-          secondary,
-        ],
-      );
-    }
+        if (layout.isCompact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              primary,
+              SizedBox(height: spacing),
+              secondary,
+            ],
+          );
+        }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(flex: primaryFlex, child: primary),
-        SizedBox(width: spacing),
-        Expanded(flex: secondaryFlex, child: secondary),
-      ],
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: primaryFlex, child: primary),
+            SizedBox(width: spacing),
+            Expanded(flex: secondaryFlex, child: secondary),
+          ],
+        );
+      },
     );
   }
 }
