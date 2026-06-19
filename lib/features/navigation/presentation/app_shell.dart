@@ -98,10 +98,7 @@ class AppShell extends ConsumerWidget {
                       footer: sidebarMiniPlayer,
                     ),
                     Expanded(
-                      child: SafeArea(
-                        minimum: const EdgeInsets.fromLTRB(0, 16, 16, 16),
-                        child: navigationShell,
-                      ),
+                      child: SafeArea(child: navigationShell),
                     ),
                   ],
                 )
