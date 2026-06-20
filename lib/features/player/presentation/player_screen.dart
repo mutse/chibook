@@ -1,5 +1,6 @@
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/app/adaptive/adaptive_content.dart';
+import 'package:chibook/app/adaptive/adaptive_layout.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/data/models/epub_models.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
@@ -118,8 +119,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       ...recentBooks.skip(currentIndex + 1),
       ...recentBooks.take(currentIndex),
     ].take(4).toList();
-    final isWide = MediaQuery.sizeOf(context).width >= 840;
-
     final primaryChildren = [
       _PlayerTopBar(
         currentBook: currentBook,
@@ -205,40 +204,49 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       ],
     ];
 
-    if (!isWide) {
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
-        children: [
-          ...primaryChildren,
-          const SizedBox(height: 18),
-          ...secondaryChildren,
-        ],
-      );
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final layout = AdaptiveLayoutData.fromConstraints(
+          constraints,
+          fallbackWidth: MediaQuery.sizeOf(context).width,
+        );
 
-    return AdaptiveContentContainer(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(0, 12, 0, 120),
-        child: AdaptiveTwoPane(
-          primaryFlex: 5,
-          secondaryFlex: 3,
-          spacing: 24,
-          primary: Container(
-            key: const Key('player-primary-pane'),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: primaryChildren,
+        if (layout.isCompact) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+            children: [
+              ...primaryChildren,
+              const SizedBox(height: 18),
+              ...secondaryChildren,
+            ],
+          );
+        }
+
+        return AdaptiveContentContainer(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(0, 12, 0, 120),
+            child: AdaptiveTwoPane(
+              primaryFlex: 5,
+              secondaryFlex: 3,
+              spacing: 24,
+              primary: Container(
+                key: const Key('player-primary-pane'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: primaryChildren,
+                ),
+              ),
+              secondary: Container(
+                key: const Key('player-secondary-pane'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: secondaryChildren,
+                ),
+              ),
             ),
           ),
-          secondary: Container(
-            key: const Key('player-secondary-pane'),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: secondaryChildren,
-            ),
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -476,44 +484,56 @@ class _PlayerTransportCard extends StatelessWidget {
       colors: const [Color(0x2EFFFFFF), Color(0x12FFFFFF)],
       radius: 38,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: Column(
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final controls = [
+            _PlayerActionChip(
+              icon: Icons.speed_rounded,
+              label: speedLabel,
+              onTap: onSpeedTap,
+            ),
+            IconButton(
+              onPressed: onPrevious,
+              icon: const Icon(
+                Icons.skip_previous_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+            _PlayPauseButton(
+              book: currentBook,
+              speechState: speechState,
+            ),
+            IconButton(
+              onPressed: onNext,
+              icon: const Icon(
+                Icons.skip_next_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+            _PlayerActionChip(
+              icon: Icons.toc_rounded,
+              label: '目录',
+              onTap: onChaptersTap,
+            ),
+          ];
+
+          if (constraints.maxWidth < 380) {
+            return Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: controls,
+            );
+          }
+
+          return Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _PlayerActionChip(
-                icon: Icons.speed_rounded,
-                label: speedLabel,
-                onTap: onSpeedTap,
-              ),
-              IconButton(
-                onPressed: onPrevious,
-                icon: const Icon(
-                  Icons.skip_previous_rounded,
-                  color: Colors.white,
-                  size: 34,
-                ),
-              ),
-              _PlayPauseButton(
-                book: currentBook,
-                speechState: speechState,
-              ),
-              IconButton(
-                onPressed: onNext,
-                icon: const Icon(
-                  Icons.skip_next_rounded,
-                  color: Colors.white,
-                  size: 34,
-                ),
-              ),
-              _PlayerActionChip(
-                icon: Icons.toc_rounded,
-                label: '目录',
-                onTap: onChaptersTap,
-              ),
-            ],
-          ),
-        ],
+            children: controls,
+          );
+        },
       ),
     );
   }
