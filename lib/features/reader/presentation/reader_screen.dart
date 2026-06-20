@@ -1,3 +1,5 @@
+import 'package:chibook/app/adaptive/adaptive_content.dart';
+import 'package:chibook/app/adaptive/adaptive_layout.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/data/models/pdf_chapter_data.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
@@ -41,39 +43,55 @@ class ReaderScreen extends ConsumerWidget {
 
             return LayoutBuilder(
               builder: (context, constraints) {
+                final layout = AdaptiveLayoutData.fromConstraints(
+                  constraints,
+                  fallbackWidth: MediaQuery.sizeOf(context).width,
+                );
+                final isWide = !layout.isCompact;
                 final isLandscape =
                     constraints.maxWidth > constraints.maxHeight;
+                final useCondensedChrome = !isWide && isLandscape;
                 final brightnessAlpha =
                     ((1 - preferences.brightness).clamp(0.0, 0.55) * 0.72)
                         .toDouble();
+                final mainPane = _ReaderMainPane(
+                  book: book,
+                  colors: screenColors,
+                  isLandscape: useCondensedChrome,
+                );
+
                 return Stack(
                   children: [
-                    Column(
-                      children: [
-                        _ReaderHeader(
-                          book: book,
-                          colors: screenColors,
-                          isLandscape: isLandscape,
-                        ),
-                        Expanded(
-                          child: switch (book.format) {
-                            BookFormat.pdf => PdfReaderView(
-                                book: book,
-                                compact: isLandscape,
+                    if (isWide)
+                      AdaptiveContentContainer(
+                        maxWidth: 1240,
+                        child: SizedBox(
+                          height: constraints.maxHeight,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 12, 0, 12),
+                            child: AdaptiveTwoPane(
+                              primaryFlex: 5,
+                              secondaryFlex: 2,
+                              spacing: 28,
+                              primary: Align(
+                                alignment: Alignment.topCenter,
+                                child: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 760),
+                                  child: mainPane,
+                                ),
                               ),
-                            BookFormat.epub => EpubReaderView(
+                              secondary: _ReaderWideSidebar(
                                 book: book,
-                                compact: isLandscape,
+                                preferences: preferences,
+                                colors: screenColors,
                               ),
-                          },
+                            ),
+                          ),
                         ),
-                        _SpeechBar(
-                          book: book,
-                          colors: screenColors,
-                          isLandscape: isLandscape,
-                        ),
-                      ],
-                    ),
+                      )
+                    else
+                      mainPane,
                     if (brightnessAlpha > 0)
                       IgnorePointer(
                         child: ColoredBox(
@@ -91,6 +109,277 @@ class ReaderScreen extends ConsumerWidget {
           error: (error, stack) =>
               Center(child: Text('Failed to open book: $error')),
         ),
+      ),
+    );
+  }
+}
+
+class _ReaderMainPane extends StatelessWidget {
+  const _ReaderMainPane({
+    required this.book,
+    required this.colors,
+    required this.isLandscape,
+  });
+
+  final Book book;
+  final _ScreenColors colors;
+  final bool isLandscape;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _ReaderHeader(
+          book: book,
+          colors: colors,
+          isLandscape: isLandscape,
+        ),
+        Expanded(
+          child: switch (book.format) {
+            BookFormat.pdf => PdfReaderView(
+                book: book,
+                compact: isLandscape,
+              ),
+            BookFormat.epub => EpubReaderView(
+                book: book,
+                compact: isLandscape,
+              ),
+          },
+        ),
+        _SpeechBar(
+          book: book,
+          colors: colors,
+          isLandscape: isLandscape,
+        ),
+      ],
+    );
+  }
+}
+
+class _ReaderWideSidebar extends ConsumerWidget {
+  const _ReaderWideSidebar({
+    required this.book,
+    required this.preferences,
+    required this.colors,
+  });
+
+  final Book book;
+  final ReaderPreferences preferences;
+  final _ScreenColors colors;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final chapter = ref.watch(currentEpubChapterProvider(book.id));
+    final pdfChapter = ref.watch(currentPdfChapterProvider(book.id));
+    final speechState = ref.watch(readerSpeechStateProvider);
+    final progressPercent = (book.progress.clamp(0.0, 1.0) * 100).round();
+    final locationLabel = chapter?.title ??
+        (pdfChapter == null ? null : _pdfChapterLabel(pdfChapter)) ??
+        book.lastReadLocation ??
+        '从当前位置继续';
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ReaderSidebarCard(
+            colors: colors,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '阅读概览',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colors.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  book.title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: colors.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${book.author} · ${book.formatLabel}',
+                  style: TextStyle(color: colors.secondaryForeground),
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: book.progress.clamp(0.0, 1.0),
+                    minHeight: 8,
+                    color: colors.foreground,
+                    backgroundColor: colors.border,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '已读 $progressPercent%',
+                  style: TextStyle(
+                    color: colors.foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  locationLabel,
+                  style: TextStyle(color: colors.secondaryForeground),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _ReaderSidebarCard(
+            colors: colors,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '阅读布局',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colors.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                _ReaderSidebarStat(
+                  label: '主题',
+                  value: readerThemeLabel(preferences.themeMode),
+                  colors: colors,
+                ),
+                _ReaderSidebarStat(
+                  label: '字体',
+                  value: readerFontPresetLabel(preferences.fontPreset),
+                  colors: colors,
+                ),
+                _ReaderSidebarStat(
+                  label: '字号',
+                  value: preferences.fontSize.toStringAsFixed(0),
+                  colors: colors,
+                ),
+                _ReaderSidebarStat(
+                  label: '行高',
+                  value: preferences.lineHeight.toStringAsFixed(2),
+                  colors: colors,
+                ),
+                _ReaderSidebarStat(
+                  label: '翻页',
+                  value: readerPageTurnModeLabel(preferences.pageTurnMode),
+                  colors: colors,
+                ),
+                _ReaderSidebarStat(
+                  label: '朗读状态',
+                  value: _speechStateLabel(speechState, false),
+                  colors: colors,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _ReaderSidebarCard(
+            colors: colors,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '快捷入口',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colors.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => context.push('/reader-settings'),
+                  icon: const Icon(Icons.palette_outlined),
+                  label: const Text('阅读外观'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => context.push('/book/${book.id}/notebook'),
+                  icon: const Icon(Icons.sticky_note_2_outlined),
+                  label: const Text('查看笔记'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => context.push('/settings'),
+                  icon: const Icon(Icons.record_voice_over_outlined),
+                  label: const Text('语音与设置'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReaderSidebarCard extends StatelessWidget {
+  const _ReaderSidebarCard({
+    required this.colors,
+    required this.child,
+  });
+
+  final _ScreenColors colors;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _ReaderSidebarStat extends StatelessWidget {
+  const _ReaderSidebarStat({
+    required this.label,
+    required this.value,
+    required this.colors,
+  });
+
+  final String label;
+  final String value;
+  final _ScreenColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: colors.secondaryForeground),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: colors.foreground,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -227,7 +516,8 @@ class _ReaderHeader extends ConsumerWidget {
             onPressed: () => context.push('/pro'),
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            icon: Icon(Icons.workspace_premium_outlined, color: colors.foreground),
+            icon: Icon(Icons.workspace_premium_outlined,
+                color: colors.foreground),
           ),
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -1259,7 +1549,8 @@ class _ReaderCloudUpgradeNotice extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             '免费版会继续使用本地 TTS。升级后可在这里切换 Azure Speech、OpenAI 或 ElevenLabs。',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
+            style:
+                Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
           ),
         ],
       ),
