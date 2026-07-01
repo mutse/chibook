@@ -77,15 +77,15 @@ void main() {
     'AdaptiveTwoPane uses local constraints instead of full window width',
     (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: MediaQuery(
-            data: const MediaQueryData(size: Size(1200, 800)),
+            data: MediaQueryData(size: Size(1200, 800)),
             child: Center(
               child: SizedBox(
                 width: 430,
                 child: AdaptiveTwoPane(
-                  primary: const SizedBox(key: Key('primary'), height: 20),
-                  secondary: const SizedBox(
+                  primary: SizedBox(key: Key('primary'), height: 20),
+                  secondary: SizedBox(
                     key: Key('secondary'),
                     height: 20,
                   ),

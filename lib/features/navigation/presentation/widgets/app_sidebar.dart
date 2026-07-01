@@ -73,7 +73,7 @@ class _SidebarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final selectedColor = const Color(0xFF5D7CFF);
+    const selectedColor = Color(0xFF5D7CFF);
 
     return Material(
       color: Colors.transparent,
