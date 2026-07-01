@@ -1,23 +1,23 @@
 allprojects {
     repositories {
+        google()
+        mavenCentral()
         maven { url = uri("https://storage.flutter-io.cn/download.flutter.io") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
-        google()
         maven { url = uri("https://maven.aliyun.com/repository/central") }
-        mavenCentral()
     }
 }
 
 subprojects {
     buildscript {
         repositories {
+            google()
+            mavenCentral()
+            gradlePluginPortal()
             maven { url = uri("https://storage.flutter-io.cn/download.flutter.io") }
             maven { url = uri("https://maven.aliyun.com/repository/google") }
-            google()
             maven { url = uri("https://maven.aliyun.com/repository/central") }
-            mavenCentral()
             maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
-            gradlePluginPortal()
         }
     }
 }
