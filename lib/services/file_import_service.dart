@@ -43,7 +43,11 @@ class FileImportService {
         return existing;
       }
 
-      final extension = path.extension(sourcePath).toLowerCase();
+      final extension = _resolveSupportedExtension(
+        pickedName: picked.name,
+        sourcePath: sourcePath,
+        sourceBytes: sourceBytes,
+      );
       final format = switch (extension) {
         '.epub' => BookFormat.epub,
         '.pdf' => BookFormat.pdf,
@@ -150,6 +154,49 @@ class FileImportService {
       // Only supported on mobile platforms. Import should still succeed
       // when cache cleanup is unavailable.
     }
+  }
+
+  String _resolveSupportedExtension({
+    required String pickedName,
+    required String sourcePath,
+    required List<int> sourceBytes,
+  }) {
+    final nameExtension = path.extension(pickedName).toLowerCase();
+    if (nameExtension == '.epub' || nameExtension == '.pdf') {
+      return nameExtension;
+    }
+
+    final sourceExtension = path.extension(sourcePath).toLowerCase();
+    if (sourceExtension == '.epub' || sourceExtension == '.pdf') {
+      return sourceExtension;
+    }
+
+    final contentExtension = _detectSupportedExtensionFromBytes(sourceBytes);
+    if (contentExtension != null) {
+      return contentExtension;
+    }
+
+    return nameExtension.isNotEmpty ? nameExtension : sourceExtension;
+  }
+
+  String? _detectSupportedExtensionFromBytes(List<int> bytes) {
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x25 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x44 &&
+        bytes[3] == 0x46) {
+      return '.pdf';
+    }
+
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x50 &&
+        bytes[1] == 0x4B &&
+        (bytes[2] == 0x03 || bytes[2] == 0x05 || bytes[2] == 0x07) &&
+        (bytes[3] == 0x04 || bytes[3] == 0x06 || bytes[3] == 0x08)) {
+      return '.epub';
+    }
+
+    return null;
   }
 
   Future<_PdfImportMetadata> _loadPdfMetadata(String filePath) async {

@@ -1,6 +1,8 @@
+import 'package:chibook/app/adaptive/adaptive_layout.dart';
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_controller.dart';
+import 'package:chibook/features/navigation/presentation/widgets/app_sidebar.dart';
 import 'package:chibook/features/reader/application/reader_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,24 +19,24 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     const destinations = [
-      _ShellDestination(
+      AppShellDestination(
         label: '首页',
         icon: Icons.home_rounded,
       ),
-      _ShellDestination(
+      AppShellDestination(
         label: '书架',
         icon: Icons.menu_book_rounded,
       ),
-      _ShellDestination(
+      AppShellDestination(
         label: '播放',
         icon: Icons.play_arrow_rounded,
         emphasized: true,
       ),
-      _ShellDestination(
+      AppShellDestination(
         label: '发现',
         icon: Icons.explore_rounded,
       ),
-      _ShellDestination(
+      AppShellDestination(
         label: '我的',
         icon: Icons.person_rounded,
       ),
@@ -54,47 +56,98 @@ class AppShell extends ConsumerWidget {
         ? null
         : ref.watch(readerAutoSpeechProvider(currentBook.id));
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: navigationShell,
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (currentBook != null && navigationShell.currentIndex != 2) ...[
-              _MiniPlayerBar(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final layout = AdaptiveLayoutData.fromConstraints(
+          constraints,
+          fallbackWidth: MediaQuery.sizeOf(context).width,
+        );
+        final miniPlayer = currentBook != null &&
+                navigationShell.currentIndex != 2
+            ? _MiniPlayerBar(
                 book: currentBook,
                 label: autoSpeech?.label ?? estimatedListenLabel(currentBook),
                 speechState: speechState,
-              ),
-              const SizedBox(height: 12),
-            ],
-            LiquidGlassCard(
-              radius: 32,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              child: Row(
-                children: [
-                  for (var index = 0; index < destinations.length; index++)
-                    Expanded(
-                      child: _NavItem(
-                        destination: destinations[index],
-                        selected: navigationShell.currentIndex == index,
-                        onTap: () {
-                          navigationShell.goBranch(
-                            index,
-                            initialLocation:
-                                index == navigationShell.currentIndex,
-                          );
-                        },
-                      ),
+              )
+            : null;
+        final sidebarMiniPlayer = currentBook != null &&
+                navigationShell.currentIndex != 2
+            ? _MiniPlayerBar(
+                book: currentBook,
+                label: autoSpeech?.label ?? estimatedListenLabel(currentBook),
+                speechState: speechState,
+                compact: true,
+              )
+            : null;
+
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: layout.showsSidebar
+              ? Row(
+                  children: [
+                    AppSidebar(
+                      destinations: destinations,
+                      currentIndex: navigationShell.currentIndex,
+                      onSelect: (index) {
+                        navigationShell.goBranch(
+                          index,
+                          initialLocation:
+                              index == navigationShell.currentIndex,
+                        );
+                      },
+                      footer: sidebarMiniPlayer,
                     ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+                    Expanded(
+                      child: SafeArea(child: navigationShell),
+                    ),
+                  ],
+                )
+              : navigationShell,
+          bottomNavigationBar: layout.isCompact
+              ? SafeArea(
+                  minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (miniPlayer != null) ...[
+                        miniPlayer,
+                        const SizedBox(height: 12),
+                      ],
+                      LiquidGlassCard(
+                        key: const Key('app-shell-bottom-nav'),
+                        radius: 32,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            for (var index = 0;
+                                index < destinations.length;
+                                index++)
+                              Expanded(
+                                child: _NavItem(
+                                  destination: destinations[index],
+                                  selected:
+                                      navigationShell.currentIndex == index,
+                                  onTap: () {
+                                    navigationShell.goBranch(
+                                      index,
+                                      initialLocation:
+                                          index == navigationShell.currentIndex,
+                                    );
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : null,
+        );
+      },
     );
   }
 }
@@ -104,16 +157,99 @@ class _MiniPlayerBar extends ConsumerWidget {
     required this.book,
     required this.label,
     required this.speechState,
+    this.compact = false,
   });
 
   final Book book;
   final String label;
   final ReaderSpeechState speechState;
+  final bool compact;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(readerControllerProvider);
     final isPlaying = speechState == ReaderSpeechState.playing;
+
+    if (compact) {
+      return LiquidGlassCard(
+        radius: 28,
+        onTap: () => context.go('/player'),
+        colors: const [
+          Color(0xD8FFFFFF),
+          Color(0x8CEAF2FF),
+        ],
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: bookPalette(book),
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: const Icon(
+                Icons.graphic_eq_rounded,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              book.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () async {
+                if (speechState == ReaderSpeechState.paused) {
+                  await controller.resumeSpeech();
+                  return;
+                }
+                if (speechState == ReaderSpeechState.playing) {
+                  await controller.pauseSpeech();
+                  return;
+                }
+                await controller.playAutoForCurrentBook(book);
+              },
+              child: Container(
+                width: 42,
+                height: 42,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF84C9FF), Color(0xFF5D7CFF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Icon(
+                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return LiquidGlassCard(
       radius: 28,
@@ -266,7 +402,7 @@ class _NavItem extends StatelessWidget {
     required this.onTap,
   });
 
-  final _ShellDestination destination;
+  final AppShellDestination destination;
   final bool selected;
   final VoidCallback onTap;
 
@@ -338,18 +474,6 @@ class _NavItem extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ShellDestination {
-  const _ShellDestination({
-    required this.label,
-    required this.icon,
-    this.emphasized = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool emphasized;
 }
 
 extension<T> on List<T?> {

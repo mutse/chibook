@@ -1,3 +1,4 @@
+import 'package:chibook/app/adaptive/adaptive_content.dart';
 import 'package:chibook/app/liquid_ui.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/features/bookshelf/application/bookshelf_insights.dart';
@@ -94,185 +95,311 @@ class _DiscoverBody extends ConsumerWidget {
     final continueReading = filtered
         .where((book) => book.progress > 0 && book.progress < 1)
         .toList(growable: false);
-    final completed = filtered
-        .where((book) => book.progress >= 1)
-        .toList(growable: false);
+    final completed =
+        filtered.where((book) => book.progress >= 1).toList(growable: false);
+    final isCompact = MediaQuery.sizeOf(context).width < 840;
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
+      slivers: isCompact
+          ? _buildCompactSlivers(
+              context: context,
+              ref: ref,
+              query: query,
+              recentlyImported: recentlyImported,
+              continueReading: continueReading,
+              completed: completed,
+            )
+          : [
+              SliverToBoxAdapter(
+                child: AdaptiveContentContainer(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 16, 0, 120),
+                    child: AdaptiveTwoPane(
+                      primaryFlex: 5,
+                      secondaryFlex: 3,
+                      spacing: 24,
+                      primary: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '发现',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
+                          _DiscoverHeader(
+                              onImport: () => _importBook(context, ref)),
+                          const SizedBox(height: 16),
+                          AppSearchBar(
+                            hint: '搜索书名 / 作者 / 文件名',
+                            controller: searchController,
+                            onChanged: onSearchChanged,
+                            trailing: query.isEmpty
+                                ? const Icon(
+                                    Icons.library_books_outlined,
+                                    color: Color(0xFF6F7EA8),
+                                  )
+                                : GestureDetector(
+                                    onTap: () {
+                                      searchController.clear();
+                                      onSearchChanged('');
+                                    },
+                                    child: const Icon(
+                                      Icons.close_rounded,
+                                      color: Color(0xFF6F7EA8),
+                                    ),
+                                  ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '基于你的本地书库整理最近导入、在读和已完成内容。',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              for (final filter in _DiscoverFilter.values)
+                                GestureDetector(
+                                  onTap: () => onFilterChanged(filter),
+                                  child: TagChip(
+                                    label: _filterLabel(filter),
+                                    active: selectedFilter == filter,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          if (recentlyImported.isEmpty)
+                            _DiscoverEmptyState(
+                              onImport: () => _importBook(context, ref),
+                            )
+                          else ...[
+                            _DiscoverSection(
+                              title: '最近导入',
+                              actionLabel:
+                                  '${recentlyImported.take(4).length} 本',
+                              child: Column(
+                                children: [
+                                  for (final book in recentlyImported
+                                      .take(4)
+                                      .toList(growable: false))
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: _BookRow(book: book),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            _DiscoverSection(
+                              title: '继续阅读',
+                              actionLabel:
+                                  '${continueReading.take(4).length} 本',
+                              child: continueReading.isEmpty
+                                  ? const LiquidGlassCard(
+                                      child: Text('还没有在读内容，打开一本书开始吧。'),
+                                    )
+                                  : Column(
+                                      children: [
+                                        for (final book in continueReading
+                                            .take(4)
+                                            .toList(growable: false))
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                                bottom: 12),
+                                            child: _BookRow(book: book),
+                                          ),
+                                      ],
+                                    ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      secondary: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LiquidGlassCard(
+                            radius: 32,
+                            colors: const [
+                              Color(0xFFEFF5FF),
+                              Color(0xD9FFFFFF),
+                              Color(0xFFE1ECFF),
+                            ],
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _MetricTile(
+                                        label: '本地书籍',
+                                        value: '${books.length}',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _MetricTile(
+                                        label: '在读',
+                                        value: '${continueReading.length}',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                _MetricTile(
+                                  label: '已缓存',
+                                  value:
+                                      '${ref.watch(audioCacheEntriesProvider).valueOrNull?.length ?? 0}',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _DiscoverSection(
+                            title: '已读完',
+                            actionLabel: '${completed.take(4).length} 本',
+                            child: completed.isEmpty
+                                ? const LiquidGlassCard(
+                                    child: Text('还没有已完成的书。'),
+                                  )
+                                : Column(
+                                    children: [
+                                      for (final book in completed
+                                          .take(4)
+                                          .toList(growable: false))
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 12),
+                                          child: _BookRow(book: book),
+                                        ),
+                                    ],
+                                  ),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => _importBook(context, ref),
-                      icon: const Icon(Icons.add_circle_outline_rounded),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                AppSearchBar(
-                  hint: '搜索书名 / 作者 / 文件名',
-                  controller: searchController,
-                  onChanged: onSearchChanged,
-                  trailing: query.isEmpty
-                      ? const Icon(
-                          Icons.library_books_outlined,
+              ),
+            ],
+    );
+  }
+
+  List<Widget> _buildCompactSlivers({
+    required BuildContext context,
+    required WidgetRef ref,
+    required String query,
+    required List<Book> recentlyImported,
+    required List<Book> continueReading,
+    required List<Book> completed,
+  }) {
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _DiscoverHeader(onImport: () => _importBook(context, ref)),
+              const SizedBox(height: 16),
+              AppSearchBar(
+                hint: '搜索书名 / 作者 / 文件名',
+                controller: searchController,
+                onChanged: onSearchChanged,
+                trailing: query.isEmpty
+                    ? const Icon(
+                        Icons.library_books_outlined,
+                        color: Color(0xFF6F7EA8),
+                      )
+                    : GestureDetector(
+                        onTap: () {
+                          searchController.clear();
+                          onSearchChanged('');
+                        },
+                        child: const Icon(
+                          Icons.close_rounded,
                           color: Color(0xFF6F7EA8),
-                        )
-                      : GestureDetector(
-                          onTap: () {
-                            searchController.clear();
-                            onSearchChanged('');
-                          },
-                          child: const Icon(
-                            Icons.close_rounded,
-                            color: Color(0xFF6F7EA8),
-                          ),
-                        ),
-                ),
-                const SizedBox(height: 14),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final filter in _DiscoverFilter.values) ...[
-                        GestureDetector(
-                          onTap: () => onFilterChanged(filter),
-                          child: TagChip(
-                            label: _filterLabel(filter),
-                            active: selectedFilter == filter,
-                          ),
-                        ),
-                        if (filter != _DiscoverFilter.values.last)
-                          const SizedBox(width: 10),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                LiquidGlassCard(
-                  radius: 32,
-                  colors: const [
-                    Color(0xFFEFF5FF),
-                    Color(0xD9FFFFFF),
-                    Color(0xFFE1ECFF),
-                  ],
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _MetricTile(
-                          label: '本地书籍',
-                          value: '${books.length}',
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _MetricTile(
-                          label: '在读',
-                          value: '${continueReading.length}',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _MetricTile(
-                          label: '已缓存',
-                          value:
-                              '${ref.watch(audioCacheEntriesProvider).valueOrNull?.length ?? 0}',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (recentlyImported.isEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
-              child: LiquidGlassCard(
-                child: Column(
+              ),
+              const SizedBox(height: 14),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
                   children: [
-                    const Icon(
-                      Icons.file_upload_outlined,
-                      size: 48,
-                      color: Color(0xFF5D7CFF),
+                    for (final filter in _DiscoverFilter.values) ...[
+                      GestureDetector(
+                        onTap: () => onFilterChanged(filter),
+                        child: TagChip(
+                          label: _filterLabel(filter),
+                          active: selectedFilter == filter,
+                        ),
+                      ),
+                      if (filter != _DiscoverFilter.values.last)
+                        const SizedBox(width: 10),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              LiquidGlassCard(
+                radius: 32,
+                colors: const [
+                  Color(0xFFEFF5FF),
+                  Color(0xD9FFFFFF),
+                  Color(0xFFE1ECFF),
+                ],
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _MetricTile(
+                        label: '本地书籍',
+                        value: '${books.length}',
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    Text(
-                      '先导入第一本书',
-                      style:
-                          Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _MetricTile(
+                        label: '在读',
+                        value: '${continueReading.length}',
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '导入 EPUB / PDF 后，这里会自动整理最近加入、在读和已完成内容。',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyLarge
-                          ?.copyWith(height: 1.6),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: () => _importBook(context, ref),
-                      icon: const Icon(Icons.add_circle_outline_rounded),
-                      label: const Text('导入书籍'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _MetricTile(
+                        label: '已缓存',
+                        value:
+                            '${ref.watch(audioCacheEntriesProvider).valueOrNull?.length ?? 0}',
+                      ),
                     ),
                   ],
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+      if (recentlyImported.isEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+            child: _DiscoverEmptyState(
+              onImport: () => _importBook(context, ref),
             ),
-          )
-        else ...[
-          _section(
-            context: context,
-            title: '最近导入',
-            books: recentlyImported.take(4).toList(growable: false),
           ),
-          _section(
-            context: context,
-            title: '继续阅读',
-            books: continueReading.take(4).toList(growable: false),
-            emptyText: '还没有在读内容，打开一本书开始吧。',
-          ),
-          _section(
-            context: context,
-            title: '已读完',
-            books: completed.take(4).toList(growable: false),
-            emptyText: '还没有已完成的书。',
-          ),
-        ],
+        )
+      else ...[
+        _section(
+          context: context,
+          title: '最近导入',
+          books: recentlyImported.take(4).toList(growable: false),
+        ),
+        _section(
+          context: context,
+          title: '继续阅读',
+          books: continueReading.take(4).toList(growable: false),
+          emptyText: '还没有在读内容，打开一本书开始吧。',
+        ),
+        _section(
+          context: context,
+          title: '已读完',
+          books: completed.take(4).toList(growable: false),
+          emptyText: '还没有已完成的书。',
+        ),
       ],
-    );
+    ];
   }
 
   SliverToBoxAdapter _section({
@@ -321,6 +448,109 @@ class _DiscoverBody extends ConsumerWidget {
         SnackBar(content: Text('导入失败，请重试: $error')),
       );
     }
+  }
+}
+
+class _DiscoverHeader extends StatelessWidget {
+  const _DiscoverHeader({required this.onImport});
+
+  final Future<void> Function() onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '发现',
+                style: Theme.of(
+                  context,
+                )
+                    .textTheme
+                    .headlineMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '基于你的本地书库整理最近导入、在读和已完成内容。',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          onPressed: () => onImport(),
+          icon: const Icon(Icons.add_circle_outline_rounded),
+        ),
+      ],
+    );
+  }
+}
+
+class _DiscoverEmptyState extends StatelessWidget {
+  const _DiscoverEmptyState({required this.onImport});
+
+  final Future<void> Function() onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      child: Column(
+        children: [
+          const Icon(
+            Icons.file_upload_outlined,
+            size: 48,
+            color: Color(0xFF5D7CFF),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            '先导入第一本书',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '导入 EPUB / PDF 后，这里会自动整理最近加入、在读和已完成内容。',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () => onImport(),
+            icon: const Icon(Icons.add_circle_outline_rounded),
+            label: const Text('导入书籍'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiscoverSection extends StatelessWidget {
+  const _DiscoverSection({
+    required this.title,
+    required this.child,
+    this.actionLabel,
+  });
+
+  final String title;
+  final Widget child;
+  final String? actionLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(title: title, actionLabel: actionLabel),
+        const SizedBox(height: 10),
+        child,
+      ],
+    );
   }
 }
 
@@ -376,6 +606,7 @@ class _BookRow extends ConsumerWidget {
             width: 72,
             height: 100,
             radius: 18,
+            showMeta: false,
           ),
           const SizedBox(width: 14),
           Expanded(

@@ -24,9 +24,11 @@ class ReaderSpeechService {
     EntitlementService? entitlementService,
   })  : _flutterTts = flutterTts ?? FlutterTts(),
         _client = client ?? http.Client(),
-        _speechSettingsService = speechSettingsService ?? SpeechSettingsService(),
+        _speechSettingsService =
+            speechSettingsService ?? SpeechSettingsService(),
         _speechCacheService = speechCacheService,
-        _speechPlaybackService = speechPlaybackService ?? SpeechPlaybackService(),
+        _speechPlaybackService =
+            speechPlaybackService ?? SpeechPlaybackService(),
         _entitlementService = entitlementService ?? EntitlementService() {
     _configurePlaybackCallbacks();
   }
@@ -41,6 +43,7 @@ class ReaderSpeechService {
   Completer<void>? _playbackCompleter;
   Object? _activePlaybackToken;
   StreamSubscription<void>? _completionSubscription;
+  Completer<void>? _localSynthesisCompleter;
 
   static const List<String> openAiVoices = [
     'alloy',
@@ -198,12 +201,18 @@ class ReaderSpeechService {
     final config = await _loadConfig();
     _cancelTrackedPlayback();
     await _speechPlaybackService.stop();
+    await _flutterTts.stop();
     await _flutterTts.setSpeechRate(config.localSpeechRate);
     await _flutterTts.setPitch(1.0);
-    await _flutterTts.awaitSpeakCompletion(true);
     if (config.localVoiceId.isNotEmpty) {
       await _setLocalVoiceById(config.localVoiceId);
     }
+    if (_supportsLocalSynthesis()) {
+      final file = await _synthesizeLocalSpeechToFile(text);
+      await _runTrackedPlayback(() => _speechPlaybackService.playFile(file));
+      return;
+    }
+    await _flutterTts.awaitSpeakCompletion(true);
     await _runTrackedPlayback(() => _flutterTts.speak(text));
   }
 
@@ -373,7 +382,8 @@ class ReaderSpeechService {
         CloudTtsProvider.openai => await _postOpenAiSpeech(text, config),
         CloudTtsProvider.azureSpeech => await _postAzureSpeech(text, config),
         CloudTtsProvider.microsoftEdge => await _postAzureSpeech(text, config),
-        CloudTtsProvider.elevenlabs => await _postElevenLabsSpeech(text, config),
+        CloudTtsProvider.elevenlabs =>
+          await _postElevenLabsSpeech(text, config),
       };
       if (audioBytes.isEmpty) {
         return false;
@@ -404,9 +414,8 @@ class ReaderSpeechService {
     final settings = await _speechSettingsService.load();
     final isProUnlocked = await _entitlementService.isProUnlocked();
     return SpeechConfig(
-      providerMode: isProUnlocked
-          ? settings.providerMode
-          : SpeechProviderMode.local,
+      providerMode:
+          isProUnlocked ? settings.providerMode : SpeechProviderMode.local,
       cloudProvider: settings.cloudProvider,
       endpoint: settings.endpoint,
       apiKey: settings.apiKey,
@@ -706,11 +715,33 @@ class ReaderSpeechService {
   }
 
   void _configurePlaybackCallbacks() {
-    _flutterTts.setCompletionHandler(_completeTrackedPlayback);
-    _flutterTts.setCancelHandler(_cancelTrackedPlayback);
+    _flutterTts.setCompletionHandler(() {
+      final completer = _localSynthesisCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete();
+        _localSynthesisCompleter = null;
+        return;
+      }
+      _completeTrackedPlayback();
+    });
+    _flutterTts.setCancelHandler(() {
+      final completer = _localSynthesisCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete();
+        _localSynthesisCompleter = null;
+        return;
+      }
+      _cancelTrackedPlayback();
+    });
     _flutterTts.setPauseHandler(() {});
     _flutterTts.setContinueHandler(() {});
     _flutterTts.setErrorHandler((error) {
+      final completer = _localSynthesisCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.completeError(Exception(error));
+        _localSynthesisCompleter = null;
+        return;
+      }
       _failTrackedPlayback(Exception(error));
     });
     _completionSubscription =
@@ -774,6 +805,40 @@ class ReaderSpeechService {
   String _safeSlug(String input) {
     final sanitized = input.replaceAll(RegExp(r'[^a-zA-Z0-9_-]+'), '_');
     return sanitized.length > 32 ? sanitized.substring(0, 32) : sanitized;
+  }
+
+  bool _supportsLocalSynthesis() {
+    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+  }
+
+  Future<File> _synthesizeLocalSpeechToFile(String text) async {
+    final file = await _uncachedLocalSpeechFile();
+    await _flutterTts.awaitSynthCompletion(true);
+    final completer = Completer<void>();
+    _localSynthesisCompleter = completer;
+    try {
+      await _flutterTts.synthesizeToFile(text, file.path, true);
+      await completer.future;
+      if (!await file.exists()) {
+        throw Exception('Local TTS file synthesis failed.');
+      }
+      return file;
+    } finally {
+      if (identical(_localSynthesisCompleter, completer)) {
+        _localSynthesisCompleter = null;
+      }
+    }
+  }
+
+  Future<File> _uncachedLocalSpeechFile() async {
+    final directory = await getTemporaryDirectory();
+    final extension = Platform.isAndroid ? 'wav' : 'caf';
+    return File(
+      path.join(
+        directory.path,
+        'local_speech_${DateTime.now().microsecondsSinceEpoch}.$extension',
+      ),
+    );
   }
 
   Future<void> dispose() async {

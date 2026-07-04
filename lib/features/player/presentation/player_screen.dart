@@ -1,4 +1,6 @@
 import 'package:chibook/app/liquid_ui.dart';
+import 'package:chibook/app/adaptive/adaptive_content.dart';
+import 'package:chibook/app/adaptive/adaptive_layout.dart';
 import 'package:chibook/data/models/book.dart';
 import 'package:chibook/data/models/epub_models.dart';
 import 'package:chibook/data/models/pdf_chapter_toc_item.dart';
@@ -117,307 +119,134 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       ...recentBooks.skip(currentIndex + 1),
       ...recentBooks.take(currentIndex),
     ].take(4).toList();
+    final primaryChildren = [
+      _PlayerTopBar(
+        currentBook: currentBook,
+        onTimerTap: () => _showTimerSheet(context),
+        onSpeedTap: () => _showSpeedSheet(context),
+        onChaptersTap: () => _showChapterSheet(context, currentBook),
+        onPlaylistTap: () => context.push('/book/${currentBook.id}/playlist'),
+      ),
+      const SizedBox(height: 16),
+      _PlayerArtworkSection(
+        book: currentBook,
+        subtitle: autoSpeech?.label ??
+            '${currentBook.author} · ${estimatedListenLabel(currentBook)}',
+      ),
+      const SizedBox(height: 18),
+      _NowPlayingSnapshot(
+        currentBook: currentBook,
+        speechState: speechState,
+        locationLabel: locationLabel,
+        totalMinutes: totalMinutes,
+        remainingMinutes: remainingMinutes,
+      ),
+      const SizedBox(height: 18),
+      _PlayerTransportCard(
+        currentBook: currentBook,
+        speechState: speechState,
+        speedLabel: '${settings?.speed.toStringAsFixed(1) ?? '1.0'}x',
+        onPrevious: currentIndex <= 0
+            ? null
+            : () => setState(() {
+                  _selectedBookId = recentBooks[currentIndex - 1].id;
+                }),
+        onNext: currentIndex >= recentBooks.length - 1
+            ? null
+            : () => setState(() {
+                  _selectedBookId = recentBooks[currentIndex + 1].id;
+                }),
+        onSpeedTap: () => _showSpeedSheet(context),
+        onChaptersTap: () => _showChapterSheet(context, currentBook),
+      ),
+      const SizedBox(height: 20),
+      _CurrentExcerptCard(
+        book: currentBook,
+        excerpt: excerpt,
+      ),
+    ];
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
-      children: [
-        _PlayerTopBar(
-          currentBook: currentBook,
-          onTimerTap: () => _showTimerSheet(context),
-          onSpeedTap: () => _showSpeedSheet(context),
-          onChaptersTap: () => _showChapterSheet(context, currentBook),
-          onPlaylistTap: () => context.push('/book/${currentBook.id}/playlist'),
-        ),
-        const SizedBox(height: 16),
-        Center(
-          child: SizedBox(
-            width: 300,
-            height: 360,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 260,
-                  height: 260,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        bookPalette(currentBook).last.withValues(alpha: 0.44),
-                        bookPalette(currentBook).first.withValues(alpha: 0.0),
-                      ],
-                    ),
-                  ),
-                ),
-                const Positioned(
-                  bottom: 12,
-                  child: WaveformLine(
-                    color: Colors.white,
-                    barCount: 22,
-                    barWidth: 3,
-                    minHeight: 5,
-                    maxHeight: 18,
-                    spacing: 3,
-                  ),
-                ),
-                BookCoverArt(
-                  book: currentBook,
-                  width: 238,
-                  height: 320,
-                  radius: 32,
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 22),
-        Text(
-          currentBook.title,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: Colors.white,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          autoSpeech?.label ??
-              '${currentBook.author} · ${estimatedListenLabel(currentBook)}',
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Colors.white.withValues(alpha: 0.80),
-              ),
-        ),
-        const SizedBox(height: 18),
-        _NowPlayingSnapshot(
-          currentBook: currentBook,
-          speechState: speechState,
-          locationLabel: locationLabel,
-          totalMinutes: totalMinutes,
-          remainingMinutes: remainingMinutes,
-        ),
-        const SizedBox(height: 18),
-        LiquidGlassCard(
-          colors: const [Color(0x33FFFFFF), Color(0x14FFFFFF)],
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Text(
-                    '播放进度',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
-                        ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    progressLabel(currentBook),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.74),
-                        ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  value: currentBook.progress.clamp(0.04, 1.0),
-                  minHeight: 6,
-                  color: Colors.white,
-                  backgroundColor: Colors.white.withValues(alpha: 0.18),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Text(
-                    _formatPlaybackTime(consumedMinutes),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.72),
-                        ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    _formatPlaybackTime(totalMinutes),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.72),
-                        ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _PlaybackMetaChip(
-                    icon: Icons.timelapse_rounded,
-                    label: '剩余 $remainingMinutes 分钟',
-                  ),
-                  const SizedBox(width: 10),
-                  _PlaybackMetaChip(
-                    icon: Icons.bookmark_outline_rounded,
-                    label: locationLabel,
-                    expanded: true,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        LiquidGlassCard(
-          colors: const [Color(0x2EFFFFFF), Color(0x12FFFFFF)],
-          radius: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _PlayerActionChip(
-                icon: Icons.speed_rounded,
-                label: '${settings?.speed.toStringAsFixed(1) ?? '1.0'}x',
-                onTap: () => _showSpeedSheet(context),
-              ),
-              IconButton(
-                onPressed: currentIndex <= 0
-                    ? null
-                    : () => setState(() {
-                          _selectedBookId = recentBooks[currentIndex - 1].id;
-                        }),
-                icon: const Icon(
-                  Icons.skip_previous_rounded,
-                  color: Colors.white,
-                  size: 34,
-                ),
-              ),
-              _PlayPauseButton(
-                book: currentBook,
-                speechState: speechState,
-              ),
-              IconButton(
-                onPressed: currentIndex >= recentBooks.length - 1
-                    ? null
-                    : () => setState(() {
-                          _selectedBookId = recentBooks[currentIndex + 1].id;
-                        }),
-                icon: const Icon(
-                  Icons.skip_next_rounded,
-                  color: Colors.white,
-                  size: 34,
-                ),
-              ),
-              _PlayerActionChip(
-                icon: Icons.toc_rounded,
-                label: '目录',
-                onTap: () => _showChapterSheet(context, currentBook),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _PlayerActionChip(
-              icon: Icons.speed_rounded,
-              label: '${settings?.speed.toStringAsFixed(1) ?? '1.0'}x',
-              onTap: () => _showSpeedSheet(context),
-            ),
-            _PlayerActionChip(
-              icon: Icons.timer_outlined,
-              label: '定时',
-              onTap: () => _showTimerSheet(context),
-            ),
-            _PlayerActionChip(
-              icon: Icons.toc_rounded,
-              label: '目录',
-              onTap: () => _showChapterSheet(context, currentBook),
-            ),
-            _PlayerActionChip(
-              icon: Icons.queue_music_rounded,
-              label: '列表',
-              onTap: () => context.push('/book/${currentBook.id}/playlist'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => context.push('/reader/${currentBook.id}'),
-                icon: const Icon(Icons.menu_book_rounded),
-                label: const Text('打开原文'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => context.push('/book/${currentBook.id}'),
-                icon: const Icon(Icons.auto_awesome_rounded),
-                label: const Text('书籍详情'),
-              ),
-            ),
-          ],
-        ),
+    final secondaryChildren = [
+      _PlayerProgressCard(
+        book: currentBook,
+        consumedMinutes: consumedMinutes,
+        totalMinutes: totalMinutes,
+        remainingMinutes: remainingMinutes,
+        locationLabel: locationLabel,
+      ),
+      const SizedBox(height: 18),
+      _PlayerQuickActions(
+        speedLabel: '${settings?.speed.toStringAsFixed(1) ?? '1.0'}x',
+        onSpeedTap: () => _showSpeedSheet(context),
+        onTimerTap: () => _showTimerSheet(context),
+        onChaptersTap: () => _showChapterSheet(context, currentBook),
+        onPlaylistTap: () => context.push('/book/${currentBook.id}/playlist'),
+      ),
+      const SizedBox(height: 18),
+      _PlayerDestinationButtons(book: currentBook),
+      if (queue.isNotEmpty) ...[
         const SizedBox(height: 20),
-        LiquidGlassCard(
-          colors: const [Color(0x33FFFFFF), Color(0x14FFFFFF)],
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    '当前朗读内容',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
-                        ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    currentBook.formatLabel,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.68),
-                        ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                excerpt.trim().isEmpty
-                    ? '播放会从当前章节或当前页开始。如果你还没有打开原文，系统会从书籍开头自动建立朗读会话。'
-                    : excerpt,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.84),
-                      height: 1.6,
-                    ),
-              ),
-            ],
+        SectionHeader(
+          title: '接下来播放',
+          actionLabel: '查看完整列表',
+          onTap: () => context.push('/book/${currentBook.id}/playlist'),
+        ),
+        const SizedBox(height: 12),
+        ...queue.map(
+          (book) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _QueueTile(
+              book: book,
+              onTap: () => setState(() => _selectedBookId = book.id),
+            ),
           ),
         ),
-        const SizedBox(height: 18),
-        if (queue.isNotEmpty) ...[
-          SectionHeader(
-            title: '接下来播放',
-            actionLabel: '查看完整列表',
-            onTap: () => context.push('/book/${currentBook.id}/playlist'),
-          ),
-          const SizedBox(height: 12),
-          ...queue.map(
-            (book) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _QueueTile(
-                book: book,
-                onTap: () => setState(() => _selectedBookId = book.id),
+      ],
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final layout = AdaptiveLayoutData.fromConstraints(
+          constraints,
+          fallbackWidth: MediaQuery.sizeOf(context).width,
+        );
+
+        if (layout.isCompact) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+            children: [
+              ...primaryChildren,
+              const SizedBox(height: 18),
+              ...secondaryChildren,
+            ],
+          );
+        }
+
+        return AdaptiveContentContainer(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(0, 12, 0, 120),
+            child: AdaptiveTwoPane(
+              primaryFlex: 5,
+              secondaryFlex: 3,
+              spacing: 24,
+              primary: Container(
+                key: const Key('player-primary-pane'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: primaryChildren,
+                ),
+              ),
+              secondary: Container(
+                key: const Key('player-secondary-pane'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: secondaryChildren,
+                ),
               ),
             ),
           ),
-        ],
-      ],
+        );
+      },
     );
   }
 
@@ -464,6 +293,378 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       backgroundColor: const Color(0xFFF2F6FF),
       isScrollControlled: true,
       builder: (context) => _ChapterSheet(book: book),
+    );
+  }
+}
+
+class _PlayerArtworkSection extends StatelessWidget {
+  const _PlayerArtworkSection({
+    required this.book,
+    required this.subtitle,
+  });
+
+  final Book book;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Center(
+          child: SizedBox(
+            width: 300,
+            height: 360,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 260,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        bookPalette(book).last.withValues(alpha: 0.44),
+                        bookPalette(book).first.withValues(alpha: 0.0),
+                      ],
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  bottom: 12,
+                  child: WaveformLine(
+                    color: Colors.white,
+                    barCount: 22,
+                    barWidth: 3,
+                    minHeight: 5,
+                    maxHeight: 18,
+                    spacing: 3,
+                  ),
+                ),
+                BookCoverArt(
+                  book: book,
+                  width: 238,
+                  height: 320,
+                  radius: 32,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 22),
+        Text(
+          book.title,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: Colors.white,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Colors.white.withValues(alpha: 0.80),
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlayerProgressCard extends StatelessWidget {
+  const _PlayerProgressCard({
+    required this.book,
+    required this.consumedMinutes,
+    required this.totalMinutes,
+    required this.remainingMinutes,
+    required this.locationLabel,
+  });
+
+  final Book book;
+  final int consumedMinutes;
+  final int totalMinutes;
+  final int remainingMinutes;
+  final String locationLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      colors: const [Color(0x33FFFFFF), Color(0x14FFFFFF)],
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(
+                '播放进度',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                    ),
+              ),
+              const Spacer(),
+              Text(
+                progressLabel(book),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.74),
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: book.progress.clamp(0.04, 1.0),
+              minHeight: 6,
+              color: Colors.white,
+              backgroundColor: Colors.white.withValues(alpha: 0.18),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                _formatPlaybackTime(consumedMinutes),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.72),
+                    ),
+              ),
+              const Spacer(),
+              Text(
+                _formatPlaybackTime(totalMinutes),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.72),
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _PlaybackMetaChip(
+                icon: Icons.timelapse_rounded,
+                label: '剩余 $remainingMinutes 分钟',
+              ),
+              const SizedBox(width: 10),
+              _PlaybackMetaChip(
+                icon: Icons.bookmark_outline_rounded,
+                label: locationLabel,
+                expanded: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayerTransportCard extends StatelessWidget {
+  const _PlayerTransportCard({
+    required this.currentBook,
+    required this.speechState,
+    required this.speedLabel,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onSpeedTap,
+    required this.onChaptersTap,
+  });
+
+  final Book currentBook;
+  final ReaderSpeechState speechState;
+  final String speedLabel;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+  final VoidCallback onSpeedTap;
+  final VoidCallback onChaptersTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      colors: const [Color(0x2EFFFFFF), Color(0x12FFFFFF)],
+      radius: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final controls = [
+            _PlayerActionChip(
+              icon: Icons.speed_rounded,
+              label: speedLabel,
+              onTap: onSpeedTap,
+            ),
+            IconButton(
+              onPressed: onPrevious,
+              icon: const Icon(
+                Icons.skip_previous_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+            _PlayPauseButton(
+              book: currentBook,
+              speechState: speechState,
+            ),
+            IconButton(
+              onPressed: onNext,
+              icon: const Icon(
+                Icons.skip_next_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+            _PlayerActionChip(
+              icon: Icons.toc_rounded,
+              label: '目录',
+              onTap: onChaptersTap,
+            ),
+          ];
+
+          if (constraints.maxWidth < 380) {
+            return Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: controls,
+            );
+          }
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: controls,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PlayerQuickActions extends StatelessWidget {
+  const _PlayerQuickActions({
+    required this.speedLabel,
+    required this.onSpeedTap,
+    required this.onTimerTap,
+    required this.onChaptersTap,
+    required this.onPlaylistTap,
+  });
+
+  final String speedLabel;
+  final VoidCallback onSpeedTap;
+  final VoidCallback onTimerTap;
+  final VoidCallback onChaptersTap;
+  final VoidCallback onPlaylistTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _PlayerActionChip(
+          icon: Icons.speed_rounded,
+          label: speedLabel,
+          onTap: onSpeedTap,
+        ),
+        _PlayerActionChip(
+          icon: Icons.timer_outlined,
+          label: '定时',
+          onTap: onTimerTap,
+        ),
+        _PlayerActionChip(
+          icon: Icons.toc_rounded,
+          label: '目录',
+          onTap: onChaptersTap,
+        ),
+        _PlayerActionChip(
+          icon: Icons.queue_music_rounded,
+          label: '列表',
+          onTap: onPlaylistTap,
+        ),
+      ],
+    );
+  }
+}
+
+class _PlayerDestinationButtons extends StatelessWidget {
+  const _PlayerDestinationButtons({
+    required this.book,
+  });
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => context.push('/reader/${book.id}'),
+            icon: const Icon(Icons.menu_book_rounded),
+            label: const Text('打开原文'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () => context.push('/book/${book.id}'),
+            icon: const Icon(Icons.auto_awesome_rounded),
+            label: const Text('书籍详情'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CurrentExcerptCard extends StatelessWidget {
+  const _CurrentExcerptCard({
+    required this.book,
+    required this.excerpt,
+  });
+
+  final Book book;
+  final String excerpt;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassCard(
+      colors: const [Color(0x33FFFFFF), Color(0x14FFFFFF)],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '当前朗读内容',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                    ),
+              ),
+              const Spacer(),
+              Text(
+                book.formatLabel,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.68),
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            excerpt.trim().isEmpty
+                ? '播放会从当前章节或当前页开始。如果你还没有打开原文，系统会从书籍开头自动建立朗读会话。'
+                : excerpt,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.84),
+                  height: 1.6,
+                ),
+          ),
+        ],
+      ),
     );
   }
 }
