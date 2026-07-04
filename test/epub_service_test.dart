@@ -39,6 +39,42 @@ void main() {
       );
     },
   );
+
+  test('loads readable chapters from the spine when navigation is empty',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('chibook-epub-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+
+    final epubFile = File('${directory.path}/spine-only.epub');
+    await epubFile.writeAsBytes(
+      _epubWithEmptyNavigationAndReadableSpine(),
+      flush: true,
+    );
+
+    final metadata = await const EpubService().loadImportMetadata(
+      epubFile.path,
+    );
+    final book = await const EpubService().loadBook(epubFile.path);
+
+    expect(metadata.title, 'Spine Only Book');
+    expect(metadata.chapterCount, 2);
+    expect(metadata.totalLocations, greaterThan(0));
+    expect(book.chapters, hasLength(2));
+    expect(book.chapters.first.title, 'First Spine Chapter');
+    expect(
+      book.chapters.first.plainText,
+      contains('This readable chapter is only referenced by the OPF spine.'),
+    );
+    expect(book.chapters.last.title, 'Second Spine Chapter');
+    expect(
+      book.chapters.last.plainText,
+      contains('The second spine chapter should also be imported.'),
+    );
+  });
 }
 
 List<int> _epubWithMissingCoverPage() {
@@ -75,5 +111,42 @@ List<int> _epubWithMissingCoverPage() {
     'AQAARgIAAA0AAAAAAAAAAAAAAIABsAIAAE9FQlBTL3RvYy5uY3hQSwECFAMUAAAACA'
     'AbpuNcFJaqQ6cAAADtAAAAGgAAAAAAAAAAAAAAgAH/AwAAT0VCUFMveGh0bWwvY2hh'
     'cHRlcjEueGh0bWxQSwUGAAAAAAUABQA8AQAA3gQAAAAA',
+  );
+}
+
+List<int> _epubWithEmptyNavigationAndReadableSpine() {
+  return base64Decode(
+    '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'
+    'by54aHRtbFBLBQYAAAAABgAGAIgBAABOBQAAAAA=',
   );
 }

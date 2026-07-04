@@ -67,15 +67,57 @@ class EpubService {
   ) async {
     final chapters = <EpubChapterData>[];
     final navigationPoints = book.schema?.navigation?.navMap?.points;
-    if (navigationPoints == null || navigationPoints.isEmpty) {
-      return chapters;
+    if (navigationPoints != null && navigationPoints.isNotEmpty) {
+      await _readNavigationPoints(
+        book: book,
+        input: navigationPoints,
+        output: chapters,
+      );
     }
 
-    await _readNavigationPoints(
-      book: book,
-      input: navigationPoints,
-      output: chapters,
-    );
+    return chapters.isEmpty ? await _readSpineChapters(book) : chapters;
+  }
+
+  Future<List<EpubChapterData>> _readSpineChapters(EpubBookRef book) async {
+    final package = book.schema?.package;
+    final spineItems = package?.spine?.items ?? const [];
+    final manifestItems = package?.manifest?.items ?? const [];
+    final htmlFiles = book.content?.html ?? const {};
+    final chapters = <EpubChapterData>[];
+
+    for (final spineItem in spineItems) {
+      final idRef = spineItem.idRef;
+      if (idRef == null || idRef.trim().isEmpty) continue;
+
+      String? href;
+      for (final manifestItem in manifestItems) {
+        if (manifestItem.id?.toLowerCase() == idRef.toLowerCase()) {
+          href = manifestItem.href;
+          break;
+        }
+      }
+      if (href == null || href.trim().isEmpty) continue;
+
+      final htmlRef = htmlFiles[href] ?? htmlFiles[Uri.decodeFull(href)];
+      if (htmlRef == null) continue;
+
+      final html = (await _readHtmlSafely(htmlRef)).trim();
+      if (html.isEmpty) continue;
+
+      final plainText = _htmlToPlainText(html);
+      if (plainText.isEmpty) continue;
+
+      final index = chapters.length;
+      chapters.add(
+        EpubChapterData(
+          index: index,
+          title: _htmlDocumentTitle(html, index),
+          htmlContent: html,
+          plainText: plainText,
+        ),
+      );
+    }
+
     return chapters;
   }
 
@@ -132,6 +174,17 @@ class EpubService {
         : point.navigationLabels.first.text;
     final title = label?.trim();
     return title == null || title.isEmpty ? 'Chapter ${index + 1}' : title;
+  }
+
+  String _htmlDocumentTitle(String html, int index) {
+    final titleMatch = RegExp(
+      r'<\s*(?:h1|h2|title)\b[^>]*>(.*?)<\s*/\s*(?:h1|h2|title)\s*>',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(html);
+    final title =
+        titleMatch == null ? '' : _htmlToPlainText(titleMatch.group(1) ?? '');
+    return title.isEmpty ? 'Chapter ${index + 1}' : title;
   }
 
   Future<String> _readHtmlSafely(dynamic htmlRef) async {
